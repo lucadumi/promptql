@@ -1,9 +1,9 @@
-# PromptQL — fine-tune a small LLM for natural language → SQL
+# PromptQL — fine-tune a small LLM for natural language to SQL
 
 > Take a small, **open** language model I fully control, teach it to translate plain-English
 > questions into SQL, and **prove** it improved with an honest before/after evaluation.
 
-**Status:** ✅ Week 0 complete — baseline recorded.
+**Status:** baseline recorded; fine-tuning next.
 The base model (`Qwen2.5-0.5B-Instruct`) scores **40% exact-match** on a held-out set
 *before any fine-tuning*. The goal of the project is to beat that number with LoRA and
 measure the gain honestly.
@@ -50,7 +50,7 @@ Held-out eval set: **20 examples** (`data/eval/text2sql_eval.jsonl`).
 | Model                                    | Params | Metric       | Score        |
 |------------------------------------------|:------:|--------------|:------------:|
 | `Qwen2.5-0.5B-Instruct` (base, no FT)    | 0.49B  | exact-match  | **40% (8/20)** |
-| `+ LoRA fine-tune` (Week 2)              |   —    | exact-match  | _TBD_        |
+| `+ LoRA fine-tune` (planned)              |   —    | exact-match  | _TBD_        |
 
 <sub>Baseline: greedy (deterministic) decoding, run on Apple Silicon GPU (MPS) in ~11s.
 Full per-example predictions in `results/`.</sub>
@@ -97,7 +97,7 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
   human-readable `results/baseline.md` leaderboard.
 - **Planned upgrade** — *execution accuracy*: run predicted and gold SQL against a real
   SQLite database and compare the returned rows. This credits correct-but-differently-
-  written queries and is the honest way to measure the fine-tuned model in Week 3.
+  written queries and is the honest way to measure the fine-tuned model.
 
 ---
 
@@ -125,17 +125,10 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 
 ## Roadmap
 
-- [x] **Week 0 — Setup & baseline.** Env, repo, eval set, and the base model's
-      before-numbers (**40%**). *You cannot show improvement without a before.*
-- [ ] **Week 1 — Data curation.** Build a separate NL→SQL **training** set (no leakage
-      into eval), document cleaning and splits.
-- [ ] **Week 2 — Fine-tune (LoRA).** Get a run to converge on a cloud GPU; deliberately
-      hit and then fix an out-of-memory error (gradient checkpointing, batch size, 4-bit).
-      Log loss curves.
-- [ ] **Week 3 — Evaluate.** Fine-tuned vs base on the same eval set, quantitatively
-      (exact-match → execution accuracy) and with qualitative examples. Report regressions.
-- [ ] **Week 4 — Writeup + optional deploy.** Method, curves, before/after table, failure
-      cases. Optional: quantize (GGUF / bitsandbytes) and serve behind a tiny API.
+- Curate a dedicated NL→SQL **training** set, kept strictly separate from the eval set.
+- **Fine-tune** the base model with LoRA and log training curves.
+- Add **execution-accuracy** evaluation (run predicted vs. gold SQL on a real SQLite DB).
+- Optional: quantize the model and serve it behind a small API.
 
 ---
 
@@ -156,31 +149,20 @@ Python · PyTorch · Hugging Face `transformers`, `datasets`, `peft` (LoRA), `ac
 
 - **Track A — LoRA fine-tune a small open model (current).** Post-training + evaluation on
   a focused task. Cheap, fits a free GPU.
-- **Track B — pre-train a tiny GPT from scratch (stretch, nanoGPT-style).** For the
-  "trained from scratch" story and to understand the pre-training loop itself.
+- **Track B — pre-train a tiny GPT from scratch (stretch, nanoGPT-style).** To exercise
+  the pre-training loop itself on a compact corpus.
 
 ---
 
-## Notes on honesty (things that become good interview stories)
+## Evaluation principles
 
-- Baseline measured **before** training — otherwise you can prove nothing. ✅ done.
+- Measure a baseline **before** training — otherwise improvement can't be proven. ✅ done.
 - Watch **eval** loss, not just train loss (a tiny dataset overfits fast).
-- Keep tokenization / prompt format **identical** between train and eval.
-- Always show the eval set — no success-by-vibes.
+- Keep tokenization / prompt format **identical** between training and evaluation.
+- Always report on the held-out eval set; no results claimed without it.
 
-## What I learned
+## Why this project
 
-_(Filled in as the project progresses — especially the OOM and evaluation war stories.)_
-
----
-
-## Motivation
-
-A portfolio project for **AI / ML research & engineering internships**. It demonstrates the
-real end-to-end workflow those roles describe — data curation, post-training with LoRA, GPU
-training (including OOM troubleshooting), and honest evaluation — rather than just calling a
-hosted API.
-
-> One-line pitch: *"I fine-tuned a small open model with LoRA, hit and fixed an OOM wall,
-> and proved it beat the base model on a held-out eval set — while being honest about where
-> it regressed."*
+An end-to-end demonstration of small-LLM post-training and honest evaluation: data
+curation, LoRA fine-tuning, GPU training (including memory/OOM troubleshooting), and a
+rigorous before/after comparison on a held-out set — rather than calling a hosted API.
