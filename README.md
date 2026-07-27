@@ -1,4 +1,4 @@
-# Small-LLM Fine-Tuning: Natural Language → SQL
+# PromptQL — fine-tune a small LLM for natural language → SQL
 
 > Take a small, **open** language model I fully control, teach it to translate plain-English
 > questions into SQL, and **prove** it improved with an honest before/after evaluation.
