@@ -1,0 +1,20 @@
+{"id": 1, "question": "List the names of all employees.", "sql": "SELECT name FROM employees"}
+{"id": 2, "question": "How many employees are there?", "sql": "SELECT COUNT(*) FROM employees"}
+{"id": 3, "question": "Show all employees in the Engineering department.", "sql": "SELECT * FROM employees WHERE department = 'Engineering'"}
+{"id": 4, "question": "What is the average salary of all employees?", "sql": "SELECT AVG(salary) FROM employees"}
+{"id": 5, "question": "List the names of employees who earn more than 100000.", "sql": "SELECT name FROM employees WHERE salary > 100000"}
+{"id": 6, "question": "Find the highest salary among all employees.", "sql": "SELECT MAX(salary) FROM employees"}
+{"id": 7, "question": "How many employees are in the Sales department?", "sql": "SELECT COUNT(*) FROM employees WHERE department = 'Sales'"}
+{"id": 8, "question": "List all department names.", "sql": "SELECT name FROM departments"}
+{"id": 9, "question": "Show the names of employees ordered by salary in descending order.", "sql": "SELECT name FROM employees ORDER BY salary DESC"}
+{"id": 10, "question": "What is the total salary paid to all employees?", "sql": "SELECT SUM(salary) FROM employees"}
+{"id": 11, "question": "List the names of employees hired after 2020-01-01.", "sql": "SELECT name FROM employees WHERE hire_date > '2020-01-01'"}
+{"id": 12, "question": "How many distinct departments are there in the employees table?", "sql": "SELECT COUNT(DISTINCT department) FROM employees"}
+{"id": 13, "question": "Show all departments with a budget over 500000.", "sql": "SELECT * FROM departments WHERE budget > 500000"}
+{"id": 14, "question": "List the names of employees in the Marketing department ordered by name.", "sql": "SELECT name FROM employees WHERE department = 'Marketing' ORDER BY name"}
+{"id": 15, "question": "What is the average salary in the Engineering department?", "sql": "SELECT AVG(salary) FROM employees WHERE department = 'Engineering'"}
+{"id": 16, "question": "Find the name of the employee with the lowest salary.", "sql": "SELECT name FROM employees ORDER BY salary ASC LIMIT 1"}
+{"id": 17, "question": "How many departments are located in New York?", "sql": "SELECT COUNT(*) FROM departments WHERE location = 'New York'"}
+{"id": 18, "question": "List the names of the top 5 highest paid employees.", "sql": "SELECT name FROM employees ORDER BY salary DESC LIMIT 5"}
+{"id": 19, "question": "Show each department and the number of employees in it.", "sql": "SELECT department, COUNT(*) FROM employees GROUP BY department"}
+{"id": 20, "question": "List departments that have more than 10 employees.", "sql": "SELECT department FROM employees GROUP BY department HAVING COUNT(*) > 10"}

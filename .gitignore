@@ -1,0 +1,32 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Model weights / large artifacts (do NOT commit these)
+models/
+checkpoints/
+adapters/
+*.pt
+*.bin
+*.ckpt
+*.safetensors
+*.gguf
+
+# Hugging Face / experiment caches
+.cache/
+hf_cache/
+wandb/
+
+# Local env / secrets
+.env
+
+# OS junk
+.DS_Store
+
+# Scratch
+*.tmp
+scratch/
