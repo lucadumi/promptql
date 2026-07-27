@@ -3,10 +3,11 @@
 > Take a small, **open** language model I fully control, teach it to translate plain-English
 > questions into SQL, and **prove** it improved with an honest before/after evaluation.
 
-**Status:** baseline recorded; fine-tuning next.
-The base model (`Qwen2.5-0.5B-Instruct`) scores **40% exact-match** on a held-out set
-*before any fine-tuning*. The goal of the project is to beat that number with LoRA and
-measure the gain honestly.
+**Status:** ✅ fine-tuned. A LoRA adapter (only **0.88%** of params trained) lifts the base
+`Qwen2.5-0.5B-Instruct` from **40%** to **100% exact-match** on the held-out set — a real
+gain measured on a training set kept strictly separate and **de-leaked** from eval.
+(The eval is *in-distribution* with the synthetic training patterns, so this measures
+pattern generalisation + value-copying; see the honesty caveat under Results.)
 
 ---
 
@@ -50,7 +51,7 @@ Held-out eval set: **20 examples** (`data/eval/text2sql_eval.jsonl`).
 | Model                                    | Params | Metric       | Score        |
 |------------------------------------------|:------:|--------------|:------------:|
 | `Qwen2.5-0.5B-Instruct` (base, no FT)    | 0.49B  | exact-match  | **40% (8/20)** |
-| `+ LoRA fine-tune` (planned)              |   —    | exact-match  | _TBD_        |
+| `+ LoRA fine-tune` (r=8)                  | +4.4M (0.88%) | exact-match | **100% (20/20)** |
 
 <sub>Baseline: greedy (deterministic) decoding, run on Apple Silicon GPU (MPS) in ~11s.
 Full per-example predictions in `results/`.</sub>
@@ -60,6 +61,13 @@ semantically-correct query that differs by a single keyword (e.g. `ORDER BY sala
 `ORDER BY salary ASC`) is still counted as *wrong*. So 40% is a conservative **lower
 bound**; it can never inflate the "before". Moving to *execution accuracy* is a planned
 upgrade (see [Method](#how-it-works-method)).
+
+**Be honest about the "after":** the 100% is real and **leakage-free** — no eval question
+or SQL appears in training, enforced in `src/build_dataset.py`. But the eval set is
+*in-distribution* with the synthetic training templates (same SQL patterns, unseen literal
+values), so it shows LoRA taught the model the target patterns and to copy values from the
+question — **not** robustness to out-of-distribution phrasings or new schemas. The honest
+next steps are *execution accuracy* and an out-of-template eval.
 
 ---
 
@@ -72,6 +80,9 @@ automatically; no NVIDIA card needed to *run* the baseline.
 make setup      # create a venv and install torch / transformers / datasets / peft / accelerate
 make baseline   # reproduce the 40% baseline (downloads Qwen2.5-0.5B-Instruct once)
 make smoke      # fast end-to-end pipeline check on a tiny model (no big download)
+make data       # (re)generate the de-leaked NL->SQL training set into data/train/
+make train      # LoRA fine-tune on data/train/ -> adapters/ (uses MPS / CPU / CUDA)
+make eval-ft    # score the fine-tuned adapter on the same eval set (the "after")
 ```
 
 Try any other small model:
