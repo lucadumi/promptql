@@ -52,7 +52,7 @@ def pick_device(pref: str) -> str:
     return "cpu"
 
 
-def load_model_and_tokenizer(model_name: str, device: str):
+def load_model_and_tokenizer(model_name: str, device: str, adapter: str | None = None):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -64,6 +64,16 @@ def load_model_and_tokenizer(model_name: str, device: str):
     # float32 is the safe default on CPU/MPS; fp16 only really helps on CUDA.
     dtype = torch.float16 if device == "cuda" else torch.float32
     model = AutoModelForCausalLM.from_pretrained(model_name, dtype=dtype)
+
+    # Load the LoRA adapter on top of the frozen base model, if one was given.
+    # This is how we score the FINE-TUNED model on the exact same eval set --
+    # same base, same prompt format, only the adapter weights differ.
+    if adapter:
+        from peft import PeftModel
+
+        print(f"Applying LoRA adapter: {adapter} ...", flush=True)
+        model = PeftModel.from_pretrained(model, adapter)
+
     model.to(device)
     model.eval()
     return model, tokenizer
@@ -104,6 +114,7 @@ def generate_sql(model, tokenizer, question: str, device: str, max_new_tokens: i
 def main() -> int:
     parser = argparse.ArgumentParser(description="Baseline eval for the text-to-SQL task.")
     parser.add_argument("--model", default=None, help="HF model id (default: Qwen 0.5B Instruct).")
+    parser.add_argument("--adapter", default=None, help="Path to a trained LoRA adapter dir (score the fine-tuned model).")
     parser.add_argument("--smoke", action="store_true", help="Use a tiny model to test the pipeline.")
     parser.add_argument("--eval-file", default=str(DEFAULT_EVAL), help="Path to eval JSONL.")
     parser.add_argument("--limit", type=int, default=None, help="Only evaluate the first N examples.")
@@ -122,8 +133,9 @@ def main() -> int:
         print(f"No eval examples found in {args.eval_file}", file=sys.stderr)
         return 1
 
-    print(f"Model: {model_name} | device: {device} | examples: {len(examples)}", flush=True)
-    model, tokenizer = load_model_and_tokenizer(model_name, device)
+    label = model_name + (f" + {os.path.basename(os.path.normpath(args.adapter))}" if args.adapter else "")
+    print(f"Model: {label} | device: {device} | examples: {len(examples)}", flush=True)
+    model, tokenizer = load_model_and_tokenizer(model_name, device, args.adapter)
 
     records = []
     correct = 0
@@ -151,6 +163,7 @@ def main() -> int:
     em = correct / n
     summary = {
         "model": model_name,
+        "adapter": args.adapter,
         "device": device,
         "eval_file": os.path.relpath(args.eval_file, REPO_ROOT),
         "n_examples": n,
@@ -164,7 +177,11 @@ def main() -> int:
     outdir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     safe_model = model_name.replace("/", "__")
-    json_path = outdir / f"baseline_{safe_model}_{stamp}.json"
+    tag = safe_model
+    if args.adapter:
+        tag += "__" + os.path.basename(os.path.normpath(args.adapter))
+    prefix = "eval" if args.adapter else "baseline"
+    json_path = outdir / f"{prefix}_{tag}_{stamp}.json"
     with json_path.open("w", encoding="utf-8") as fh:
         json.dump({"summary": summary, "records": records}, fh, indent=2)
 
@@ -183,8 +200,11 @@ def _append_markdown_row(md_path: Path, summary: dict) -> None:
         "| timestamp (UTC) | model | device | n | exact-match |\n"
         "|---|---|---|---|---|\n"
     )
+    display_model = summary["model"]
+    if summary.get("adapter"):
+        display_model += " + " + os.path.basename(os.path.normpath(summary["adapter"]))
     row = (
-        f"| {summary['timestamp_utc']} | `{summary['model']}` | {summary['device']} "
+        f"| {summary['timestamp_utc']} | `{display_model}` | {summary['device']} "
         f"| {summary['n_examples']} | {summary['exact_match']:.1%} |\n"
     )
     if not md_path.exists():
