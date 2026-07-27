@@ -1,0 +1,12 @@
+# Top-level dependencies for local (macOS / CPU / MPS) work.
+# Install with:  pip install -r requirements.in
+# Pinned versions are captured in requirements.txt via `pip freeze`.
+
+torch            # PyTorch (CPU/MPS build on macOS; CUDA build on the cloud GPU)
+transformers     # Model loading, tokenizers, text generation
+datasets         # Dataset loading + curation (Week 1)
+peft             # LoRA / QLoRA adapters (Week 2)
+accelerate       # Device placement + training-loop helpers
+
+# NOTE: bitsandbytes (4-bit / QLoRA) is CUDA-only and does NOT install/run on
+# macOS. Install it ONLY on the cloud GPU (Colab / Kaggle). See requirements-gpu.txt.
