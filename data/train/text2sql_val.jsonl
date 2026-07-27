@@ -1,0 +1,26 @@
+{"id": 1, "question": "List the names of employees who earn more than 60000.", "sql": "SELECT name FROM employees WHERE salary > 60000"}
+{"id": 2, "question": "For each department, show the total salary paid.", "sql": "SELECT department, SUM(salary) FROM employees GROUP BY department"}
+{"id": 3, "question": "List departments that have fewer than 15 employees.", "sql": "SELECT department FROM employees GROUP BY department HAVING COUNT(*) < 15"}
+{"id": 4, "question": "Show the names of employees ordered by hire_date in ascending order.", "sql": "SELECT name FROM employees ORDER BY hire_date ASC"}
+{"id": 5, "question": "Show all departments with a budget over 800000.", "sql": "SELECT * FROM departments WHERE budget > 800000"}
+{"id": 6, "question": "Show all employees in the Support department.", "sql": "SELECT * FROM employees WHERE department = 'Support'"}
+{"id": 7, "question": "List the names of employees in the Human Resources department ordered by name.", "sql": "SELECT name FROM employees WHERE department = 'Human Resources' ORDER BY name"}
+{"id": 8, "question": "List the budgets of all departments.", "sql": "SELECT budget FROM departments"}
+{"id": 9, "question": "How many departments are located in San Francisco?", "sql": "SELECT COUNT(*) FROM departments WHERE location = 'San Francisco'"}
+{"id": 10, "question": "How many departments are located in Remote?", "sql": "SELECT COUNT(*) FROM departments WHERE location = 'Remote'"}
+{"id": 11, "question": "Show all departments with a budget under 100000.", "sql": "SELECT * FROM departments WHERE budget < 100000"}
+{"id": 12, "question": "List the names of employees hired after 2023-01-01.", "sql": "SELECT name FROM employees WHERE hire_date > '2023-01-01'"}
+{"id": 13, "question": "What is the average salary in the Research department?", "sql": "SELECT AVG(salary) FROM employees WHERE department = 'Research'"}
+{"id": 14, "question": "List the names of employees in the Engineering department ordered by name.", "sql": "SELECT name FROM employees WHERE department = 'Engineering' ORDER BY name"}
+{"id": 15, "question": "List the names of employees who earn more than 70000.", "sql": "SELECT name FROM employees WHERE salary > 70000"}
+{"id": 16, "question": "What is the lowest salary of all employees?", "sql": "SELECT MIN(salary) FROM employees"}
+{"id": 17, "question": "Count the total number of departments.", "sql": "SELECT COUNT(*) FROM departments"}
+{"id": 18, "question": "How many employees are in the Engineering department?", "sql": "SELECT COUNT(*) FROM employees WHERE department = 'Engineering'"}
+{"id": 19, "question": "Show all employees in the Legal department.", "sql": "SELECT * FROM employees WHERE department = 'Legal'"}
+{"id": 20, "question": "List the names of employees who earn less than 60000.", "sql": "SELECT name FROM employees WHERE salary < 60000"}
+{"id": 21, "question": "What is the average salary in the Product department?", "sql": "SELECT AVG(salary) FROM employees WHERE department = 'Product'"}
+{"id": 22, "question": "List the names of the 10 lowest paid employees.", "sql": "SELECT name FROM employees ORDER BY salary ASC LIMIT 10"}
+{"id": 23, "question": "What is the total budget across all departments?", "sql": "SELECT SUM(budget) FROM departments"}
+{"id": 24, "question": "How many employees are in the Support department?", "sql": "SELECT COUNT(*) FROM employees WHERE department = 'Support'"}
+{"id": 25, "question": "List the salaries of all employees.", "sql": "SELECT salary FROM employees"}
+{"id": 26, "question": "List the names of employees hired before 2021-06-01.", "sql": "SELECT name FROM employees WHERE hire_date < '2021-06-01'"}
