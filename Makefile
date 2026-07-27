@@ -3,7 +3,7 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help setup freeze smoke baseline data train eval-ft clean
+.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft test lint clean
 
 help:
 	@echo "make setup     - create venv and install local (CPU/MPS) requirements"
@@ -12,6 +12,8 @@ help:
 	@echo "make data      - (re)generate the de-leaked NL->SQL training set"
 	@echo "make train     - LoRA fine-tune the base model on data/train/"
 	@echo "make eval-ft   - evaluate the fine-tuned adapter on the eval set"
+	@echo "make test      - run the fast unit tests (no model download)"
+	@echo "make lint      - run ruff (real-error rules) over the repo"
 	@echo "make freeze    - pin installed versions into requirements.txt"
 
 setup:
@@ -23,6 +25,15 @@ setup:
 
 freeze:
 	$(PIP) freeze > requirements.txt
+
+dev-setup:
+	$(PIP) install -r requirements-dev.txt
+
+test:
+	$(PY) -m pytest
+
+lint:
+	$(PY) -m ruff check .
 
 smoke:
 	$(PY) -m src.eval_baseline --smoke --limit 5
