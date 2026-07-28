@@ -1,0 +1,5 @@
+# Development-only dependencies: fast tests + linting.
+# These are intentionally lightweight (no torch/transformers) so the test
+# suite and CI run in seconds. Install with:  pip install -r requirements-dev.txt
+pytest>=8,<9
+ruff>=0.6

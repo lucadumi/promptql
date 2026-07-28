@@ -320,7 +320,6 @@ def main() -> int:
     write_jsonl(train, train_path)
     write_jsonl(val, val_path)
 
-    total = len(train) + len(val)
     print("=" * 64)
     print("PromptQL training-set build")
     print("=" * 64)
@@ -330,7 +329,7 @@ def main() -> int:
     print(f"kept (unique, clean) : {rep['n_kept']}")
     print(f"  -> train           : {len(train)}")
     print(f"  -> val             : {len(val)}")
-    print(f"leakage vs eval      : 0 (verified)")
+    print("leakage vs eval      : 0 (verified)")
     print("-" * 64)
     print("per-pattern (category) counts among kept examples:")
     train_cats = Counter(c for c, _, _ in train)
