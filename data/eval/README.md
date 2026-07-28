@@ -14,6 +14,12 @@ numbers are directly comparable.
   Same schema, so it reuses the same prompt and seeded DB. Used to measure robustness to
   unseen phrasings (see `tests/test_eval_sets.py`, which checks the golds match and that
   no question overlaps a training example).
+- `text2sql_eval_bookstore.jsonl` - the **cross-schema** set: the same 20 intents and
+  construct coverage, but re-targeted at a completely different **bookstore** schema
+  (`publishers`, `books`) with all-new table and column names. Different schema, so it uses
+  the bookstore prompt and its own seeded DB (`src/db.py::BOOKSTORE_SCHEMA`). Used to measure
+  whether the fine-tune transfers to a schema it never trained on (see
+  `tests/test_schema_bookstore.py`).
 
 ## Fixed schema
 Every question is written against this SQLite schema (also shown to the model in
@@ -23,6 +29,16 @@ every prompt, see `src/data_utils.py::SCHEMA_SQL`):
 CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT, budget INTEGER, location TEXT);
 CREATE TABLE employees  (id INTEGER PRIMARY KEY, name TEXT, department TEXT,
                          salary INTEGER, hire_date TEXT, manager_id INTEGER);
+```
+
+The **cross-schema** set (`text2sql_eval_bookstore.jsonl`) targets a second schema that
+mirrors the one above construct-for-construct with all-new names (also shown to the model in
+every prompt, see `src/data_utils.py::BOOKSTORE_SCHEMA_SQL`):
+
+```sql
+CREATE TABLE publishers (id INTEGER PRIMARY KEY, name TEXT, revenue INTEGER, city TEXT);
+CREATE TABLE books      (id INTEGER PRIMARY KEY, title TEXT, genre TEXT,
+                         price INTEGER, published_date TEXT, publisher_id INTEGER);
 ```
 
 ## How it was built (data curation notes)

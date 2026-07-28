@@ -47,9 +47,11 @@ CREATE TABLE employees  (id INTEGER PRIMARY KEY, name TEXT, department TEXT,
 
 ## Results
 
-Held-out eval: **20 examples** (`data/eval/text2sql_eval.jsonl`), scored two ways. A second,
-**out-of-template** set (`data/eval/text2sql_eval_paraphrase.jsonl`) re-asks the same 20
-intents with unfamiliar phrasings to test generalisation (see below).
+Held-out eval: **20 examples** (`data/eval/text2sql_eval.jsonl`), scored two ways. Two further
+sets probe generalisation (see below): an **out-of-template** set
+(`data/eval/text2sql_eval_paraphrase.jsonl`) re-asks the same 20 intents with unfamiliar
+phrasings, and a **cross-schema** set (`data/eval/text2sql_eval_bookstore.jsonl`) re-asks the
+same 20 intents against a completely different (bookstore) schema.
 
 | Model                                    | Params        | exact-match      | exec-accuracy    |
 |------------------------------------------|:-------------:|:----------------:|:----------------:|
@@ -91,13 +93,35 @@ headcount" and "how big is the Sales team" get `SUM(salary)` instead of `COUNT(*
 people" emits an invalid `WHERE COUNT(*) > 10` instead of `GROUP BY ... HAVING`. That is the
 honest ceiling of a narrow LoRA fine-tune, and exactly why an out-of-template set matters.
 
+### Cross-schema: does it transfer to a new schema?
+
+The two evals above keep the **employees** schema fixed. To test whether the fine-tune
+memorised that schema's column names or actually learned to read the schema from the prompt,
+`data/eval/text2sql_eval_bookstore.jsonl` re-asks the same 20 intents against a completely
+different **bookstore** schema (`publishers`, `books`, with all-new column names), built to
+mirror the original construct-for-construct. Same in-template phrasing, brand-new schema and
+seeded DB, so only the schema changes.
+
+| Model                          | employees (exec) | bookstore / unseen (exec) |
+|--------------------------------|:----------------:|:-------------------------:|
+| `Qwen2.5-0.5B-Instruct` (base) | 65% (13/20)        | 70% (14/20)               |
+| `+ LoRA fine-tune`             | 100% (20/20)       | **100% (20/20)**          |
+
+The fine-tune holds **100% / 100%** on a schema it never trained on, and the predictions use
+the bookstore tables and columns (`books`, `publishers`, `price`, `genre`) with **zero**
+leakage of employees-schema names. So the LoRA did **not** just memorise employees column
+names - it learned to copy the schema's tables and columns out of the prompt and slot them
+into the right query shape. Put together with the phrasing result above, the brittleness is
+specifically about **phrasing**, not **schema**: reword the question and it slips to 75%, but
+swap the entire schema and it stays at 100%.
+
 **Be honest about the "after":** the 100% is real and **leakage-free** - no eval question
 or SQL appears in training, enforced in `src/build_dataset.py`. But the eval set is
 *in-distribution* with the synthetic training templates (same SQL patterns, unseen literal
 values), so it shows LoRA taught the model the target patterns and to copy values from the
-question, **not** robustness to out-of-distribution phrasings or new schemas. Execution
-accuracy and the out-of-template phrasing eval above now measure that gap directly; the
-remaining honest next step is a *second schema* (cross-schema generalisation).
+question. Execution accuracy, the out-of-template phrasing eval, and the cross-schema eval
+above now measure the generalisation gap directly: the fine-tune transfers across schemas
+(100% on an unseen schema) but only partly across phrasings (75% on reworded questions).
 
 ---
 
@@ -160,6 +184,7 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 ├── data/eval/
 │   ├── text2sql_eval.jsonl             # 20 held-out NL→SQL examples (in-template)
 │   ├── text2sql_eval_paraphrase.jsonl  # same 20 intents, reworded (out-of-template)
+│   ├── text2sql_eval_bookstore.jsonl   # same 20 intents, unseen bookstore schema (cross-schema)
 │   └── README.md                       # data card: schema + how the sets were built
 ├── results/
 │   ├── baseline.md          # human-readable results table
@@ -180,7 +205,9 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
   SQLite DB), crediting correct-but-differently-written queries.
 - ✅ Add an **out-of-template phrasing** eval (same intents, unfamiliar wording): the
   fine-tune holds 75% execution accuracy vs 100% in-template, quantifying the gap.
-- Next: a **second schema** to test cross-schema generalisation.
+- ✅ Add a **second (bookstore) schema** to test cross-schema generalisation: the fine-tune
+  holds 100% execution accuracy on a schema it never trained on, so it reads the schema from
+  the prompt rather than memorising column names.
 - Optional: quantize the model and serve it behind a small API.
 
 ---
