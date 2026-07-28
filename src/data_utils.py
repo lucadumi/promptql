@@ -31,6 +31,30 @@ CREATE TABLE employees (
     manager_id INTEGER
 );"""
 
+# ---------------------------------------------------------------------------
+# A second, unrelated schema used only for the cross-schema generalisation eval
+# (see data/eval/text2sql_eval_bookstore.jsonl). Same two-table, denormalised
+# shape as the employees schema so it exercises the identical SQL constructs,
+# but every table and column name is different. The fine-tune never trained on
+# this schema, so scoring it measures whether the model transfers the task or
+# just memorised the employees column names.
+# ---------------------------------------------------------------------------
+BOOKSTORE_SCHEMA_SQL = """\
+CREATE TABLE publishers (
+    id      INTEGER PRIMARY KEY,
+    name    TEXT,
+    revenue INTEGER,
+    city    TEXT
+);
+CREATE TABLE books (
+    id             INTEGER PRIMARY KEY,
+    title          TEXT,
+    genre          TEXT,
+    price          INTEGER,
+    published_date TEXT,      -- ISO date, e.g. '2016-04-01'
+    publisher_id   INTEGER
+);"""
+
 SYSTEM_PROMPT = (
     "You are a precise text-to-SQL assistant. Given a database schema and a "
     "question, respond with a single valid SQLite query that answers it. "
@@ -38,22 +62,26 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_user_prompt(question: str) -> str:
-    """The user-turn text: schema + question."""
-    return f"Schema:\n{SCHEMA_SQL}\n\nQuestion: {question}\nSQL:"
+def build_user_prompt(question: str, schema_sql: str = SCHEMA_SQL) -> str:
+    """The user-turn text: schema + question.
+
+    ``schema_sql`` defaults to the employees schema; pass a different DDL string
+    (e.g. ``BOOKSTORE_SCHEMA_SQL``) to prompt the model against another schema.
+    """
+    return f"Schema:\n{schema_sql}\n\nQuestion: {question}\nSQL:"
 
 
-def build_messages(question: str) -> List[Dict[str, str]]:
+def build_messages(question: str, schema_sql: str = SCHEMA_SQL) -> List[Dict[str, str]]:
     """Chat-format messages for instruct models (used with a chat template)."""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_prompt(question)},
+        {"role": "user", "content": build_user_prompt(question, schema_sql)},
     ]
 
 
-def build_plain_prompt(question: str) -> str:
+def build_plain_prompt(question: str, schema_sql: str = SCHEMA_SQL) -> str:
     """Fallback prompt for base (non-chat) models with no chat template."""
-    return f"{SYSTEM_PROMPT}\n\n{build_user_prompt(question)}"
+    return f"{SYSTEM_PROMPT}\n\n{build_user_prompt(question, schema_sql)}"
 
 
 def load_jsonl(path: str | Path) -> List[Dict]:
