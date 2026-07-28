@@ -26,9 +26,10 @@ CREATE TABLE employees  (id INTEGER PRIMARY KEY, name TEXT, department TEXT,
   `ORDER BY`, `LIMIT`, `DISTINCT`, `GROUP BY`, and `HAVING`.
 - Gold SQL is canonical and minimal (no trailing semicolon, single quotes for
   string literals) so it matches the normalisation in `src/metrics.py`.
-- Scoring is **normalised exact-match** (strict). Two equivalent-but-different
-  queries count as wrong — an honest lower bound that leaves clear room to
-  improve after fine-tuning. Execution-accuracy is a planned Week-3 upgrade.
+- Scored two ways: **normalised exact-match** (strict string equality — a
+  conservative lower bound) and **execution accuracy** (run predicted vs. gold SQL
+  against the seeded SQLite DB in `src/db.py` and compare the returned rows), which
+  credits equivalent-but-differently-written queries.
 
 ## Important
 - This is the **eval** split only. Keep training data (Week 1) in a separate file
