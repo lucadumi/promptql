@@ -4,8 +4,9 @@ We keep this deliberately simple and honest: normalise both prediction and gold
 SQL, then check for an exact string match. Exact-match is a strict lower bound on
 quality (two different-but-equivalent queries count as wrong), which is fine for a
 *baseline* -- it gives the fine-tuned model clear room to improve, and it never
-overstates the base model. Execution-accuracy against a real SQLite DB is a good
-Week-3 upgrade.
+overstates the base model. Execution accuracy against a real seeded SQLite DB
+(see src/db.py) is the companion metric that credits equivalent-but-differently-
+written queries.
 """
 from __future__ import annotations
 
