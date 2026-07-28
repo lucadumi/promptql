@@ -3,9 +3,10 @@
 > Take a small, **open** language model I fully control, teach it to translate plain-English
 > questions into SQL, and **prove** it improved with an honest before/after evaluation.
 
-**Status:** ✅ fine-tuned. A LoRA adapter (only **0.88%** of params trained) lifts the base
-`Qwen2.5-0.5B-Instruct` from **40%** to **100% exact-match** on the held-out set — a real
-gain measured on a training set kept strictly separate and **de-leaked** from eval.
+**Status:** ✅ fine-tuned + evaluated two ways. A LoRA adapter (only **0.88%** of params
+trained) lifts the base `Qwen2.5-0.5B-Instruct` from **40% → 100%** exact-match and
+**65% → 100%** execution-accuracy on the held-out set — a real gain measured on a training
+set kept strictly separate and **de-leaked** from eval.
 (The eval is *in-distribution* with the synthetic training patterns, so this measures
 pattern generalisation + value-copying; see the honesty caveat under Results.)
 
@@ -46,28 +47,33 @@ CREATE TABLE employees  (id INTEGER PRIMARY KEY, name TEXT, department TEXT,
 
 ## Results
 
-Held-out eval set: **20 examples** (`data/eval/text2sql_eval.jsonl`).
+Held-out eval set: **20 examples** (`data/eval/text2sql_eval.jsonl`), scored two ways.
 
-| Model                                    | Params | Metric       | Score        |
-|------------------------------------------|:------:|--------------|:------------:|
-| `Qwen2.5-0.5B-Instruct` (base, no FT)    | 0.49B  | exact-match  | **40% (8/20)** |
-| `+ LoRA fine-tune` (r=8)                  | +4.4M (0.88%) | exact-match | **100% (20/20)** |
+| Model                                    | Params        | exact-match      | exec-accuracy    |
+|------------------------------------------|:-------------:|:----------------:|:----------------:|
+| `Qwen2.5-0.5B-Instruct` (base, no FT)    | 0.49B         | **40% (8/20)**   | **65% (13/20)**  |
+| `+ LoRA fine-tune` (r=8)                 | +4.4M (0.88%) | **100% (20/20)** | **100% (20/20)** |
 
-<sub>Baseline: greedy (deterministic) decoding, run on Apple Silicon GPU (MPS) in ~11s.
+<sub>Greedy (deterministic) decoding, run on Apple Silicon GPU (MPS) in ~7–10s.
 Full per-example predictions in `results/`.</sub>
 
-**Read the score correctly:** this is **strict normalized exact-match** — a
+**Read the two scores.** *Exact-match* is strict normalized string equality — a
 semantically-correct query that differs by a single keyword (e.g. `ORDER BY salary` vs
-`ORDER BY salary ASC`) is still counted as *wrong*. So 40% is a conservative **lower
-bound**; it can never inflate the "before". Moving to *execution accuracy* is a planned
-upgrade (see [Method](#how-it-works-method)).
+`ORDER BY salary ASC`) is counted **wrong**. *Execution accuracy* runs the predicted and
+gold SQL against a real **seeded SQLite DB** (`src/db.py`) and compares the returned rows,
+so it credits correct-but-differently-written queries. The gap between them is exactly
+those queries: the base model actually answers **13/20** correctly, it just phrases 5 of
+them unlike the gold string — e.g. `COUNT(id)` vs `COUNT(*)`, `SELECT DISTINCT name` vs
+`SELECT name`, `ORDER BY salary` vs `ORDER BY salary ASC`. So exact-match (40%) is a
+conservative lower bound; execution accuracy (65%) is the honest "before".
 
 **Be honest about the "after":** the 100% is real and **leakage-free** — no eval question
 or SQL appears in training, enforced in `src/build_dataset.py`. But the eval set is
 *in-distribution* with the synthetic training templates (same SQL patterns, unseen literal
 values), so it shows LoRA taught the model the target patterns and to copy values from the
-question — **not** robustness to out-of-distribution phrasings or new schemas. The honest
-next steps are *execution accuracy* and an out-of-template eval.
+question — **not** robustness to out-of-distribution phrasings or new schemas. With
+*execution accuracy* now in place, the remaining honest next step is an *out-of-template*
+eval (unseen phrasings / a second schema).
 
 ---
 
@@ -101,14 +107,17 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
   drift (a classic silent-failure bug). → `src/data_utils.py`
 - **Generation** — greedy / deterministic (`do_sample=False`), so every run is
   reproducible and before/after comparisons are fair. → `src/eval_baseline.py`
-- **Scoring** — normalize both prediction and gold (strip markdown fences, lowercase,
-  collapse whitespace, unify quotes, drop trailing `;`), then compare as strings.
-  → `src/metrics.py`
-- **Output** — a machine-readable `results/baseline_*.json` (every prediction) plus a
+- **Scoring (two metrics)** — *exact-match*: normalize both prediction and gold (strip
+  markdown fences, lowercase, collapse whitespace, unify quotes, drop trailing `;`) and
+  compare as strings → `src/metrics.py`. *Execution accuracy*: run both queries against a
+  small **seeded SQLite DB** and compare the returned rows — order-sensitive only when the
+  gold query uses `ORDER BY` → `src/db.py`.
+- **Seed database** — a deterministic, committed dataset (`src/db.py`) for the fixed
+  schema, hand-chosen so every eval query returns a *discriminating* result (distinct
+  salaries; one department with >10 employees; budgets, locations and hire-dates that
+  straddle the eval thresholds). A wrong query therefore returns different rows.
+- **Output** — a machine-readable `results/*.json` (every prediction, both metrics) plus a
   human-readable `results/baseline.md` leaderboard.
-- **Planned upgrade** — *execution accuracy*: run predicted and gold SQL against a real
-  SQLite database and compare the returned rows. This credits correct-but-differently-
-  written queries and is the honest way to measure the fine-tuned model.
 
 ---
 
@@ -118,7 +127,10 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 .
 ├── src/
 │   ├── eval_baseline.py   # run a model on the eval set, save the before/after numbers
+│   ├── build_dataset.py   # synthesise the de-leaked NL->SQL training set
+│   ├── train_lora.py      # LoRA fine-tune the base model on data/train/
 │   ├── data_utils.py      # DB schema + shared prompt format (keeps train == eval)
+│   ├── db.py              # seed SQLite DB + execution-accuracy scoring
 │   └── metrics.py         # SQL normalisation + exact-match scoring
 ├── data/eval/
 │   ├── text2sql_eval.jsonl  # 20 held-out NL→SQL examples
@@ -136,9 +148,12 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 
 ## Roadmap
 
-- Curate a dedicated NL→SQL **training** set, kept strictly separate from the eval set.
-- **Fine-tune** the base model with LoRA and log training curves.
-- Add **execution-accuracy** evaluation (run predicted vs. gold SQL on a real SQLite DB).
+- ✅ Curate a dedicated NL→SQL **training** set, kept strictly separate from the eval set.
+- ✅ **Fine-tune** the base model with LoRA.
+- ✅ Add **execution-accuracy** evaluation (run predicted vs. gold SQL on a real seeded
+  SQLite DB) — credits correct-but-differently-written queries.
+- Next: an **out-of-template** eval (unseen phrasings / a second schema) to test
+  generalisation beyond the synthetic patterns.
 - Optional: quantize the model and serve it behind a small API.
 
 ---
