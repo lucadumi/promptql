@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data_utils import build_messages, build_plain_prompt, load_jsonl  # noqa: E402
-from src.db import execution_match  # noqa: E402
+from src.db import SCHEMAS, execution_match  # noqa: E402
 from src.metrics import exact_match, normalize_sql  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -80,18 +80,22 @@ def load_model_and_tokenizer(model_name: str, device: str, adapter: str | None =
     return model, tokenizer
 
 
-def generate_sql(model, tokenizer, question: str, device: str, max_new_tokens: int) -> str:
+def generate_sql(
+    model, tokenizer, question: str, device: str, max_new_tokens: int, schema_sql: str
+) -> str:
     import torch
 
     # Use the model's chat template when it has one; otherwise a plain prompt.
     if getattr(tokenizer, "chat_template", None):
         input_ids = tokenizer.apply_chat_template(
-            build_messages(question),
+            build_messages(question, schema_sql),
             add_generation_prompt=True,
             return_tensors="pt",
         )
     else:
-        input_ids = tokenizer(build_plain_prompt(question), return_tensors="pt").input_ids
+        input_ids = tokenizer(
+            build_plain_prompt(question, schema_sql), return_tensors="pt"
+        ).input_ids
 
     input_ids = input_ids.to(device)
     # batch size 1, no padding -> mask is all ones; passing it silences the
@@ -118,6 +122,8 @@ def main() -> int:
     parser.add_argument("--adapter", default=None, help="Path to a trained LoRA adapter dir (score the fine-tuned model).")
     parser.add_argument("--smoke", action="store_true", help="Use a tiny model to test the pipeline.")
     parser.add_argument("--eval-file", default=str(DEFAULT_EVAL), help="Path to eval JSONL.")
+    parser.add_argument("--schema", default="employees", choices=sorted(SCHEMAS),
+                        help="Which seeded schema the eval set targets (prompt + execution DB).")
     parser.add_argument("--limit", type=int, default=None, help="Only evaluate the first N examples.")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Max tokens to generate per query.")
     parser.add_argument("--device", default="auto", help="auto | cpu | mps | cuda")
@@ -135,7 +141,8 @@ def main() -> int:
         return 1
 
     label = model_name + (f" + {os.path.basename(os.path.normpath(args.adapter))}" if args.adapter else "")
-    print(f"Model: {label} | device: {device} | examples: {len(examples)}", flush=True)
+    schema = SCHEMAS[args.schema]
+    print(f"Model: {label} | device: {device} | examples: {len(examples)} | schema: {schema.name}", flush=True)
     model, tokenizer = load_model_and_tokenizer(model_name, device, args.adapter)
 
     records = []
@@ -144,9 +151,9 @@ def main() -> int:
     t0 = time.time()
     for i, ex in enumerate(examples, start=1):
         question, gold = ex["question"], ex["sql"]
-        raw = generate_sql(model, tokenizer, question, device, args.max_new_tokens)
+        raw = generate_sql(model, tokenizer, question, device, args.max_new_tokens, schema.ddl)
         ok = exact_match(raw, gold)
-        exec_res = execution_match(raw, gold)
+        exec_res = execution_match(raw, gold, schema)
         correct += int(ok)
         exec_correct += int(exec_res.match)
         records.append(
@@ -172,6 +179,7 @@ def main() -> int:
     summary = {
         "model": model_name,
         "adapter": args.adapter,
+        "schema": schema.name,
         "device": device,
         "eval_file": os.path.relpath(args.eval_file, REPO_ROOT),
         "n_examples": n,
