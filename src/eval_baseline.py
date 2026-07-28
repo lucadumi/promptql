@@ -190,6 +190,7 @@ def main() -> int:
     tag = safe_model
     if args.adapter:
         tag += "__" + os.path.basename(os.path.normpath(args.adapter))
+    tag += "__" + Path(args.eval_file).stem
     prefix = "eval" if args.adapter else "baseline"
     json_path = outdir / f"{prefix}_{tag}_{stamp}.json"
     with json_path.open("w", encoding="utf-8") as fh:
@@ -208,14 +209,15 @@ def main() -> int:
 def _append_markdown_row(md_path: Path, summary: dict) -> None:
     """Maintain a human-readable results/baseline.md leaderboard."""
     header = (
-        "| timestamp (UTC) | model | device | n | exact-match | exec-accuracy |\n"
-        "|---|---|---|---|---|---|\n"
+        "| timestamp (UTC) | model | eval set | device | n | exact-match | exec-accuracy |\n"
+        "|---|---|---|---|---|---|---|\n"
     )
     display_model = summary["model"]
     if summary.get("adapter"):
         display_model += " + " + os.path.basename(os.path.normpath(summary["adapter"]))
+    eval_set = Path(summary["eval_file"]).stem
     row = (
-        f"| {summary['timestamp_utc']} | `{display_model}` | {summary['device']} "
+        f"| {summary['timestamp_utc']} | `{display_model}` | {eval_set} | {summary['device']} "
         f"| {summary['n_examples']} | {summary['exact_match']:.1%} "
         f"| {summary['execution_accuracy']:.1%} |\n"
     )

@@ -1,4 +1,4 @@
 # Extra dependencies for the CLOUD GPU only (Colab / Kaggle / vast.ai / RunPod).
-# Do NOT install these on macOS — bitsandbytes is CUDA-only.
+# Do NOT install these on macOS - bitsandbytes is CUDA-only.
 # On the GPU box, run:  pip install -r requirements.in -r requirements-gpu.txt
 bitsandbytes     # 4-bit quantization backend for QLoRA (CUDA only)

@@ -5,10 +5,15 @@ same file for the baseline (Week 0) and the fine-tuned model (Week 3), so the
 numbers are directly comparable.
 
 ## Files
-- `text2sql_eval.jsonl` — 20 examples, one JSON object per line:
+- `text2sql_eval.jsonl` - 20 examples, one JSON object per line:
   ```json
   {"id": 1, "question": "List the names of all employees.", "sql": "SELECT name FROM employees"}
   ```
+- `text2sql_eval_paraphrase.jsonl` - the **out-of-template** set: the *same 20 gold
+  queries* as above, but every question is reworded in unfamiliar, indirect language.
+  Same schema, so it reuses the same prompt and seeded DB. Used to measure robustness to
+  unseen phrasings (see `tests/test_eval_sets.py`, which checks the golds match and that
+  no question overlaps a training example).
 
 ## Fixed schema
 Every question is written against this SQLite schema (also shown to the model in
@@ -26,7 +31,7 @@ CREATE TABLE employees  (id INTEGER PRIMARY KEY, name TEXT, department TEXT,
   `ORDER BY`, `LIMIT`, `DISTINCT`, `GROUP BY`, and `HAVING`.
 - Gold SQL is canonical and minimal (no trailing semicolon, single quotes for
   string literals) so it matches the normalisation in `src/metrics.py`.
-- Scored two ways: **normalised exact-match** (strict string equality — a
+- Scored two ways: **normalised exact-match** (strict string equality - a
   conservative lower bound) and **execution accuracy** (run predicted vs. gold SQL
   against the seeded SQLite DB in `src/db.py` and compare the returned rows), which
   credits equivalent-but-differently-written queries.
