@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.data_utils import build_messages, build_plain_prompt, load_jsonl  # noqa: E402
+from src.db import execution_match  # noqa: E402
 from src.metrics import exact_match, normalize_sql  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -139,12 +140,15 @@ def main() -> int:
 
     records = []
     correct = 0
+    exec_correct = 0
     t0 = time.time()
     for i, ex in enumerate(examples, start=1):
         question, gold = ex["question"], ex["sql"]
         raw = generate_sql(model, tokenizer, question, device, args.max_new_tokens)
         ok = exact_match(raw, gold)
+        exec_res = execution_match(raw, gold)
         correct += int(ok)
+        exec_correct += int(exec_res.match)
         records.append(
             {
                 "id": ex.get("id", i),
@@ -154,13 +158,17 @@ def main() -> int:
                 "prediction_norm": normalize_sql(raw),
                 "gold_norm": normalize_sql(gold),
                 "correct": ok,
+                "exec_correct": exec_res.match,
+                "exec_error": exec_res.pred_error,
             }
         )
-        print(f"[{i:2d}/{len(examples)}] {'OK ' if ok else 'XX '} {question}", flush=True)
+        flags = f"EM {'OK' if ok else 'XX'} | EX {'OK' if exec_res.match else 'XX'}"
+        print(f"[{i:2d}/{len(examples)}] {flags}  {question}", flush=True)
 
     elapsed = time.time() - t0
     n = len(examples)
     em = correct / n
+    ex_acc = exec_correct / n
     summary = {
         "model": model_name,
         "adapter": args.adapter,
@@ -168,7 +176,9 @@ def main() -> int:
         "eval_file": os.path.relpath(args.eval_file, REPO_ROOT),
         "n_examples": n,
         "exact_match": round(em, 4),
+        "execution_accuracy": round(ex_acc, 4),
         "correct": correct,
+        "exec_correct": exec_correct,
         "seconds": round(elapsed, 1),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -188,7 +198,8 @@ def main() -> int:
     _append_markdown_row(outdir / "baseline.md", summary)
 
     print("\n" + "=" * 60)
-    print(f"EXACT MATCH: {correct}/{n} = {em:.1%}  ({elapsed:.1f}s on {device})")
+    print(f"EXACT MATCH: {correct}/{n} = {em:.1%}")
+    print(f"EXEC  ACC  : {exec_correct}/{n} = {ex_acc:.1%}  ({elapsed:.1f}s on {device})")
     print(f"Saved: {json_path.relative_to(REPO_ROOT)}")
     print("=" * 60)
     return 0
@@ -197,15 +208,16 @@ def main() -> int:
 def _append_markdown_row(md_path: Path, summary: dict) -> None:
     """Maintain a human-readable results/baseline.md leaderboard."""
     header = (
-        "| timestamp (UTC) | model | device | n | exact-match |\n"
-        "|---|---|---|---|---|\n"
+        "| timestamp (UTC) | model | device | n | exact-match | exec-accuracy |\n"
+        "|---|---|---|---|---|---|\n"
     )
     display_model = summary["model"]
     if summary.get("adapter"):
         display_model += " + " + os.path.basename(os.path.normpath(summary["adapter"]))
     row = (
         f"| {summary['timestamp_utc']} | `{display_model}` | {summary['device']} "
-        f"| {summary['n_examples']} | {summary['exact_match']:.1%} |\n"
+        f"| {summary['n_examples']} | {summary['exact_match']:.1%} "
+        f"| {summary['execution_accuracy']:.1%} |\n"
     )
     if not md_path.exists():
         md_path.write_text("# Baseline results\n\n" + header + row, encoding="utf-8")
