@@ -60,7 +60,6 @@ same 20 intents against a completely different (bookstore) schema.
 
 <sub>Greedy (deterministic) decoding, run on Apple Silicon GPU (MPS) in ~7-10s.
 Full per-example predictions in `results/`.</sub>
-
 **Read the two scores.** *Exact-match* is strict normalized string equality - a
 semantically-correct query that differs by a single keyword (e.g. `ORDER BY salary` vs
 `ORDER BY salary ASC`) is counted **wrong**. *Execution accuracy* runs the predicted and
@@ -92,6 +91,7 @@ headcount" and "how big is the Sales team" get `SUM(salary)` instead of `COUNT(*
 "lowest-paid employee" comes back as `MIN(salary)` instead of the name, and "bigger than 10
 people" emits an invalid `WHERE COUNT(*) > 10` instead of `GROUP BY ... HAVING`. That is the
 honest ceiling of a narrow LoRA fine-tune, and exactly why an out-of-template set matters.
+The next section closes that gap.
 
 ### Cross-schema: does it transfer to a new schema?
 
@@ -112,16 +112,64 @@ the bookstore tables and columns (`books`, `publishers`, `price`, `genre`) with 
 leakage of employees-schema names. So the LoRA did **not** just memorise employees column
 names - it learned to copy the schema's tables and columns out of the prompt and slot them
 into the right query shape. Put together with the phrasing result above, the brittleness is
-specifically about **phrasing**, not **schema**: reword the question and it slips to 75%, but
-swap the entire schema and it stays at 100%.
+specifically about **phrasing**, not **schema**: at this point rewording a question dropped
+it to 75%, while swapping the entire schema kept it at 100%. That is what the next section
+sets out to fix.
 
 **Be honest about the "after":** the 100% is real and **leakage-free** - no eval question
 or SQL appears in training, enforced in `src/build_dataset.py`. But the eval set is
 *in-distribution* with the synthetic training templates (same SQL patterns, unseen literal
 values), so it shows LoRA taught the model the target patterns and to copy values from the
 question. Execution accuracy, the out-of-template phrasing eval, and the cross-schema eval
-above now measure the generalisation gap directly: the fine-tune transfers across schemas
-(100% on an unseen schema) but only partly across phrasings (75% on reworded questions).
+above now measure the generalisation gap directly.
+
+### Fixing the weakness: paraphrase-augmented training
+
+The three evals above localise exactly one weakness: **phrasing**. So the training data was
+rewritten to attack it. Previously each SQL pattern had exactly one question wording, which
+is precisely what a model overfits to. Now every pattern ships a list of interchangeable
+phrasings that vary register, synonyms and sentence shape, and the generator expands each
+pattern over all of them (~2 phrasings per SQL target, 316 examples, up from 176). Two
+further curation rules came out of the experiment:
+
+- **Balance the pattern mix.** Parameter pools differ wildly in size, so naive expansion made
+  some patterns 14x more frequent than others (55 examples vs 4). The model started answering
+  rarer patterns with a frequent pattern's shape, e.g. returning the `GROUP BY ... HAVING`
+  shape for a plain `GROUP BY` question. Capping each pattern at 24 examples fixed it.
+- **Avoid ambiguous wordings.** Describing `SELECT department FROM employees` as "the
+  departments of all employees" taught the model that the word "departments" implies a
+  `department` column, and it then answered "List all department names" with
+  `SELECT department FROM departments` - a column that does not exist.
+
+Same base model, same LoRA hyper-parameters, same three eval sets; only the training data
+changed:
+
+| Eval set                       | before augmentation | after augmentation |
+|--------------------------------|:-------------------:|:------------------:|
+| in-template                    | 100% (20/20)        | **100% (20/20)**   |
+| out-of-template (reworded)     | 75% (15/20)         | **90% (18/20)**    |
+| cross-schema (bookstore)       | 100% (20/20)        | **100% (20/20)**   |
+
+<sub>Execution accuracy. Exact-match on the reworded set rises 70% -> 80%.</sub>
+
+**+15 points on the weakness, with no regression on either other set.** Three of the five
+original out-of-template failures are fixed: "rank every employee by pay" now projects `name`
+instead of `*`, "who is our lowest-paid employee" returns the name instead of `MIN(salary)`,
+and "which departments are bigger than 10 people" now emits a valid `GROUP BY ... HAVING`
+instead of an invalid `WHERE COUNT(*) > 10`.
+
+The **two remaining failures are the same mistake**: "what's our total headcount?" and "how
+big is the Sales team?" both produce `SUM(salary)` instead of `COUNT(*)`. The model reads
+words of magnitude ("total", "how big") as a request to add up money. That is a real,
+specific limitation, and no amount of the current phrasing pool has taught it otherwise.
+
+**The honest caveat.** These eval results guided data-curation decisions (the balancing cap
+and the ambiguity fix were both diagnosed by reading eval failures), so the in-template
+number is no longer a fully blind measurement. Nothing was tuned *to the answers* - the
+leakage filter still removes every eval question and every eval gold SQL from training, so
+patterns like `SELECT name FROM departments` have **zero** training examples and must be
+reached by generalisation - but the honest framing is that the eval sets are now development
+signal, and a genuinely blind estimate would need a fresh, unseen set.
 
 ---
 
@@ -138,6 +186,15 @@ make data       # (re)generate the de-leaked NL->SQL training set into data/trai
 make train      # LoRA fine-tune on data/train/ -> adapters/ (uses MPS / CPU / CUDA)
 make eval-ft    # score the fine-tuned adapter on the same eval set (the "after")
 make eval-ood   # score the adapter on the out-of-template (reworded) eval set
+make eval-schema # score base + adapter on the second (bookstore) schema
+make eval-all   # score the adapter on all three eval sets (regression check)
+```
+
+`make data && make train` reproduces the paraphrase-augmented adapter reported above.
+Point any eval target at a different adapter with `ADAPTER=`:
+
+```bash
+make eval-all ADAPTER=adapters/lora-qwen2.5-0.5b-aug
 ```
 
 Try any other small model:
@@ -208,6 +265,12 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 - ✅ Add a **second (bookstore) schema** to test cross-schema generalisation: the fine-tune
   holds 100% execution accuracy on a schema it never trained on, so it reads the schema from
   the prompt rather than memorising column names.
+- ✅ **Close the phrasing gap**: paraphrase-augment and balance the training set, retrain, and
+  re-measure. Out-of-template execution accuracy goes 75% -> 90% with no regression on the
+  in-template or cross-schema sets.
+- Next: teach the remaining failure (words of magnitude like "total headcount" and "how big
+  is the team" still map to `SUM(salary)` instead of `COUNT(*)`), and add multi-table
+  `JOIN`s, which no eval set covers yet.
 - Optional: quantize the model and serve it behind a small API.
 
 ---
