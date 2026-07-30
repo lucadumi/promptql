@@ -27,7 +27,7 @@ from pathlib import Path
 # Make `src` importable whether run as `-m src.eval_baseline` or as a file path.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data_utils import build_messages, build_plain_prompt, load_jsonl  # noqa: E402
+from src.data_utils import SCHEMA_SQL, build_messages, build_plain_prompt, load_jsonl  # noqa: E402
 from src.db import SCHEMAS, execution_match  # noqa: E402
 from src.metrics import exact_match, normalize_sql  # noqa: E402
 
@@ -81,7 +81,8 @@ def load_model_and_tokenizer(model_name: str, device: str, adapter: str | None =
 
 
 def generate_sql(
-    model, tokenizer, question: str, device: str, max_new_tokens: int, schema_sql: str
+    model, tokenizer, question: str, device: str, max_new_tokens: int,
+    schema_sql: str = SCHEMA_SQL,
 ) -> str:
     import torch
 

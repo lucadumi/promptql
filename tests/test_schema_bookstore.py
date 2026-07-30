@@ -113,3 +113,41 @@ class TestPromptCarriesSchema:
         prompt = build_user_prompt("How many books are there?", BOOKSTORE_SCHEMA_SQL)
         assert "books" in prompt and "publishers" in prompt
         assert "employees" not in prompt
+
+
+class TestSchemaArgIsBackwardCompatible:
+    """Adding the schema parameter must not break existing single-schema callers.
+
+    src/train_lora.py reuses eval_baseline.generate_sql for its end-of-run sample
+    generations and calls it without a schema, so schema_sql has to stay optional.
+    Making it required once broke training at the very last line, after the
+    adapter had already been saved. Signature-only checks, so no torch needed.
+    """
+
+    def test_generate_sql_can_be_called_without_a_schema(self):
+        import inspect
+
+        from src.eval_baseline import generate_sql
+
+        sig = inspect.signature(generate_sql)
+        assert sig.parameters["schema_sql"].default is not inspect.Parameter.empty
+        # The exact call train_lora.sample_predictions makes must bind cleanly.
+        sig.bind(object(), object(), "question", "cpu", 64)
+
+    def test_generate_sql_default_schema_is_the_employees_schema(self):
+        import inspect
+
+        from src.data_utils import SCHEMA_SQL
+        from src.eval_baseline import generate_sql
+
+        default = inspect.signature(generate_sql).parameters["schema_sql"].default
+        assert default == SCHEMA_SQL
+
+    def test_prompt_builders_and_db_helpers_keep_working_with_one_argument(self):
+        # Same contract for the other functions the schema refactor touched.
+        assert "employees" in build_user_prompt("How many employees are there?")
+        conn = build_db()
+        try:
+            assert run_sql(conn, "SELECT COUNT(*) FROM employees")
+        finally:
+            conn.close()

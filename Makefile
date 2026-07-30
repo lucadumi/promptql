@@ -3,7 +3,11 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema test lint clean
+# Override to evaluate a different adapter, e.g.
+#   make eval-all ADAPTER=adapters/lora-qwen2.5-0.5b-aug
+ADAPTER ?= adapters/lora-qwen2.5-0.5b
+
+.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-all test lint clean
 
 help:
 	@echo "make setup     - create venv and install local (CPU/MPS) requirements"
@@ -14,6 +18,7 @@ help:
 	@echo "make eval-ft   - evaluate the fine-tuned adapter on the eval set"
 	@echo "make eval-ood  - evaluate the adapter on the out-of-template (reworded) eval set"
 	@echo "make eval-schema - evaluate base + adapter on the second (bookstore) schema"
+	@echo "make eval-all  - evaluate the adapter on all three eval sets (regression check)"
 	@echo "make test      - run the fast unit tests (no model download)"
 	@echo "make lint      - run ruff (real-error rules) over the repo"
 	@echo "make freeze    - pin installed versions into requirements.txt"
@@ -50,16 +55,25 @@ train:
 	$(PY) -m src.train_lora
 
 eval-ft:
-	$(PY) -m src.eval_baseline --adapter adapters/lora-qwen2.5-0.5b
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER)
 
 eval-ood:
-	$(PY) -m src.eval_baseline --adapter adapters/lora-qwen2.5-0.5b \
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_paraphrase.jsonl
 
 eval-schema:
 	$(PY) -m src.eval_baseline \
 		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore
-	$(PY) -m src.eval_baseline --adapter adapters/lora-qwen2.5-0.5b \
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore
+
+# Run the adapter over every eval set: in-template, reworded, and unseen schema.
+# Use this after retraining to check a gain on one set is not a loss on another.
+eval-all:
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER)
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_paraphrase.jsonl
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore
 
 clean:
