@@ -53,7 +53,48 @@ def pick_device(pref: str) -> str:
     return "cpu"
 
 
-def load_model_and_tokenizer(model_name: str, device: str, adapter: str | None = None):
+def quantize_dynamic_int8(model):
+    """Apply PyTorch dynamic int8 quantization to a model's linear layers.
+
+    "Dynamic" means the weights are quantized once, ahead of time, while
+    activations are quantized on the fly per batch. It needs no calibration data
+    and is the cheapest useful form of quantization -- which also makes it the
+    honest one to report, since anything better would need a calibration set that
+    this project does not have.
+
+    CPU-only: PyTorch's dynamic quantization kernels do not run on MPS or CUDA.
+
+    A backend has to be selected explicitly. On Apple Silicon PyTorch ships the
+    `qnnpack` kernels but leaves `torch.backends.quantized.engine` set to "none",
+    so quantizing without this raises a bare `NoQEngine` RuntimeError from deep
+    inside `linear_prepack`, which is a genuinely confusing way to find out.
+    """
+    import torch
+
+    engines = [e for e in torch.backends.quantized.supported_engines if e != "none"]
+    if not engines:
+        raise RuntimeError(
+            "this PyTorch build has no int8 quantization backend "
+            f"(supported_engines={torch.backends.quantized.supported_engines}); "
+            "dynamic quantization is unavailable here"
+        )
+    if torch.backends.quantized.engine == "none":
+        # fbgemm is the x86 kernel set, qnnpack the ARM one; prefer whichever
+        # this build actually shipped rather than hardcoding a platform.
+        torch.backends.quantized.engine = "fbgemm" if "fbgemm" in engines else engines[0]
+
+    # LoRA adapters must be folded into the base weights first: quantizing a
+    # PeftModel would leave the adapter layers in float and quantize around them,
+    # which measures neither the adapter nor the quantization honestly.
+    if hasattr(model, "merge_and_unload"):
+        model = model.merge_and_unload()
+    return torch.ao.quantization.quantize_dynamic(
+        model, {torch.nn.Linear}, dtype=torch.qint8
+    )
+
+
+def load_model_and_tokenizer(model_name: str, device: str, adapter: str | None = None,
+                             quantize: bool = False):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -74,6 +115,12 @@ def load_model_and_tokenizer(model_name: str, device: str, adapter: str | None =
 
         print(f"Applying LoRA adapter: {adapter} ...", flush=True)
         model = PeftModel.from_pretrained(model, adapter)
+
+    if quantize:
+        if device != "cpu":
+            raise ValueError("--quantize requires --device cpu (PyTorch limitation)")
+        print("Quantizing to int8 (dynamic, linear layers) ...", flush=True)
+        model = quantize_dynamic_int8(model)
 
     model.to(device)
     model.eval()
@@ -128,6 +175,8 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None, help="Only evaluate the first N examples.")
     parser.add_argument("--max-new-tokens", type=int, default=64, help="Max tokens to generate per query.")
     parser.add_argument("--device", default="auto", help="auto | cpu | mps | cuda")
+    parser.add_argument("--quantize", action="store_true",
+                        help="dynamic int8 quantization of the linear layers (CPU only)")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTDIR), help="Where to write results.")
     args = parser.parse_args()
 
@@ -144,7 +193,8 @@ def main() -> int:
     label = model_name + (f" + {os.path.basename(os.path.normpath(args.adapter))}" if args.adapter else "")
     schema = SCHEMAS[args.schema]
     print(f"Model: {label} | device: {device} | examples: {len(examples)} | schema: {schema.name}", flush=True)
-    model, tokenizer = load_model_and_tokenizer(model_name, device, args.adapter)
+    model, tokenizer = load_model_and_tokenizer(model_name, device, args.adapter,
+                                                args.quantize)
 
     records = []
     correct = 0
@@ -182,6 +232,7 @@ def main() -> int:
         "adapter": args.adapter,
         "schema": schema.name,
         "device": device,
+        "quantized": bool(args.quantize),
         "eval_file": os.path.relpath(args.eval_file, REPO_ROOT),
         "n_examples": n,
         "exact_match": round(em, 4),
@@ -199,6 +250,10 @@ def main() -> int:
     tag = safe_model
     if args.adapter:
         tag += "__" + os.path.basename(os.path.normpath(args.adapter))
+    if args.quantize:
+        # Without this an int8 run and an fp32 run of the same model differ only
+        # by timestamp, and "latest file wins" silently mixes the two.
+        tag += "__int8"
     tag += "__" + Path(args.eval_file).stem
     prefix = "eval" if args.adapter else "baseline"
     json_path = outdir / f"{prefix}_{tag}_{stamp}.json"
@@ -224,6 +279,8 @@ def _append_markdown_row(md_path: Path, summary: dict) -> None:
     display_model = summary["model"]
     if summary.get("adapter"):
         display_model += " + " + os.path.basename(os.path.normpath(summary["adapter"]))
+    if summary.get("quantized"):
+        display_model += " [int8]"
     eval_set = Path(summary["eval_file"]).stem
     row = (
         f"| {summary['timestamp_utc']} | `{display_model}` | {eval_set} | {summary['device']} "
