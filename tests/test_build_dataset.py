@@ -3,11 +3,15 @@
 The single most important correctness property of this project is: **no training
 example may leak into any held-out eval set** (same normalized question or SQL).
 The 40% -> 100% result is only honest if that holds. These tests prove it on the
-actually-generated data, plus reproducibility, stratification, and the phrasing
-diversity that the paraphrase-robustness fine-tune depends on.
+actually-generated data, plus reproducibility, stratification, the phrasing
+diversity the paraphrase-robustness fine-tune depends on, the magnitude-word
+lesson ("how big is the team" is a COUNT, not a SUM), and multi-table JOIN
+coverage.
 
 Everything here is stdlib-only (no torch), so it runs in milliseconds.
 """
+import re
+
 from src.build_dataset import (
     IDENTICAL_OVERLAP,
     build,
@@ -21,6 +25,7 @@ from src.build_dataset import (
     write_jsonl,
 )
 from src.data_utils import load_jsonl
+from src.db import build_db, run_sql
 from src.metrics import normalize_sql
 
 SEED = 13
@@ -102,11 +107,13 @@ def test_written_records_use_eval_compatible_schema(tmp_path):
 class TestLeakageGuardCoversEveryEvalSet:
     """The blocklist must be built from all of data/eval, not just the base set."""
 
-    def test_default_eval_files_include_all_three_sets(self):
+    def test_default_eval_files_include_every_eval_set(self):
         names = {p.name for p in default_eval_files()}
         assert {"text2sql_eval.jsonl",
                 "text2sql_eval_paraphrase.jsonl",
-                "text2sql_eval_bookstore.jsonl"} <= names
+                "text2sql_eval_bookstore.jsonl",
+                "text2sql_eval_join.jsonl",
+                "text2sql_eval_join_bookstore.jsonl"} <= names
 
     def test_no_training_question_appears_in_any_eval_set(self):
         rep = _build()
@@ -198,6 +205,82 @@ class TestCategoryBalance:
         small = build(default_eval_files(), val_frac=VAL_FRAC, seed=SEED, cap=5)
         assert max(small["by_cat"].values()) <= 5
         assert small["n_kept"] < _build()["n_kept"]
+
+
+class TestMagnitudeWordsMeanCount:
+    """The last failure of the paraphrase-augmented run: "total headcount" and
+    "how big is the team" both produced SUM(salary) instead of COUNT(*). The fix
+    has to teach the distinction, not the two sentences, so the generator must
+    emit size wordings for COUNT *and* a contrastive money-noun SUM."""
+
+    MAGNITUDE = re.compile(r"how (?:big|large)|headcount|the size of", re.IGNORECASE)
+    MONEY_TOTAL = re.compile(r"total salary|total payroll|add up the salaries",
+                             re.IGNORECASE)
+
+    def _kept(self):
+        rep = _build()
+        return rep["train"] + rep["val"]
+
+    def test_size_questions_are_taught_as_counts(self):
+        counts = [q for _c, q, sql in self._kept()
+                  if self.MAGNITUDE.search(q) and "COUNT(" in sql]
+        assert len(counts) >= 10, "not enough magnitude-worded COUNT examples"
+
+    def test_no_size_question_is_ever_answered_with_sum(self):
+        contradictions = [(q, sql) for _c, q, sql in self._kept()
+                          if self.MAGNITUDE.search(q) and "SUM(" in sql]
+        assert contradictions == []
+
+    def test_a_contrastive_money_total_teaches_sum(self):
+        sums = [q for _c, q, sql in self._kept()
+                if self.MONEY_TOTAL.search(q) and "SUM(" in sql]
+        assert len(sums) >= 10, "no contrastive SUM examples for 'total <money>'"
+
+    def test_both_lessons_share_the_word_total(self):
+        """The contrast is only learnable if 'total' appears on both sides."""
+        kept = self._kept()
+        assert any("total" in q.lower() and "COUNT(" in sql for _c, q, sql in kept)
+        assert any("total" in q.lower() and "SUM(" in sql for _c, q, sql in kept)
+
+
+class TestJoinCoverage:
+    """No eval set covered a JOIN before, so nothing taught one either."""
+
+    def _kept(self):
+        rep = _build()
+        return rep["train"] + rep["val"]
+
+    def test_join_families_all_survive_de_leaking(self):
+        rep = _build()
+        join_cats = {c for c in rep["by_cat"] if c.startswith(("join_", "self_join"))}
+        assert join_cats == {"join_project", "join_where", "join_count",
+                             "join_group", "join_order", "self_join"}
+        for cat in join_cats:
+            assert rep["by_cat"][cat] > 0
+
+    def test_both_join_shapes_are_taught(self):
+        sqls = [normalize_sql(sql) for _c, _q, sql in self._kept()]
+        # text-key join between the two tables ...
+        assert any("employees join departments on employees.department = departments.name" in s
+                   for s in sqls)
+        # ... and the self-join through manager_id.
+        assert any("employees e join employees m on e.manager_id = m.id" in s for s in sqls)
+
+    def test_join_targets_qualify_their_columns(self):
+        """Unqualified columns in a two-table query are ambiguous SQL."""
+        for _c, _q, sql in self._kept():
+            if " JOIN departments " not in sql:
+                continue
+            assert "employees." in sql or "departments." in sql, sql
+
+    def test_every_generated_target_is_valid_sql_on_the_seed_db(self):
+        """Cheap guard against generator typos: all of it must actually run."""
+        conn = build_db()
+        try:
+            for _c, _q, sql in self._kept():
+                run_sql(conn, sql)  # raises sqlite3.Error on a malformed target
+        finally:
+            conn.close()
 
 
 class TestOverlapReporting:

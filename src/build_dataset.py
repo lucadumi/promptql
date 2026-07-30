@@ -16,6 +16,27 @@ Why several phrasings per pattern?
   employees ...", "Name the staff whose ...") and the generator expands the
   pattern over all of them. Same SQL targets, many ways to ask.
 
+Why magnitude wordings and a contrastive SUM?
+  Paraphrase augmentation left exactly two failures, and they were the same
+  mistake: "what's our total headcount?" and "how big is the Sales team?" both
+  produced SUM(salary) instead of COUNT(*). The model had learned that words of
+  magnitude ("total", "how big") mean "add up the money". The fix is not to teach
+  those two sentences -- it is to teach the *distinction*, so the count patterns
+  now ship size/headcount wordings ("how large is the {dept} team?", "what is the
+  headcount for {dept}?") and a contrastive per-department SUM pattern ("what is
+  the {dept} department's total payroll?") pins "total" to the noun being
+  totalled (people vs money) rather than to the word itself.
+
+Why multi-table JOINs?
+  No eval set covered a JOIN, so nothing in the training data taught one. The
+  join families below cover the two shapes this project's schemas use: joining on
+  a text key (employees.department = departments.name) and joining a table to
+  itself (employees.manager_id = employees.id). They are graded by
+  data/eval/text2sql_eval_join.jsonl, with the cross-schema counterpart
+  (data/eval/text2sql_eval_join_bookstore.jsonl) joining on an integer foreign key
+  the training data never shows -- deliberately, so the join result is a
+  generalisation measurement rather than a memorisation one.
+
 The four rules this script enforces (the honest-evaluation contract):
   1. SAME schema + SAME canonical SQL style as `data/eval` (see src/data_utils.py
      and src/metrics.py) so train/eval prompt+target formats are identical.
@@ -115,6 +136,11 @@ HIRE_DATES = ["2017-01-01", "2018-01-01", "2018-06-01", "2019-01-01",
               "2019-06-01", "2021-01-01", "2021-06-01", "2022-01-01",
               "2022-06-01", "2023-01-01"]
 TOP_N = [3, 5, 10, 15]
+# Thresholds a HAVING question has to copy out of the question. Deliberately a
+# mix of one- and two-digit values: when the join patterns below drew only from
+# the single-digit end, the fine-tune started truncating "more than 10" to
+# "> 1", i.e. it had learned the digit count rather than the number. The join
+# families therefore take the two-digit tail (HAVING_N[2:]) to keep the mix even.
 HAVING_N = [3, 5, 15, 20, 25]
 
 AGGS = {"AVG": "average", "MAX": "highest", "MIN": "lowest", "SUM": "total"}
@@ -164,6 +190,11 @@ P_COUNT_ALL = [
     "Give me a count of all {table}.",
     "How many rows are in the {table} table?",
     "Tell me the size of the {table} table.",
+    # Magnitude wordings: "how large / how big / overall size" is a COUNT, not a
+    # SUM. See the module docstring -- this is the fix for "total headcount".
+    "How large is the {table} table?",
+    "How big is our list of {table}?",
+    "What is the overall size of the {table} table?",
 ]
 P_COUNT_DEPT = [
     "How many employees are in the {dept} department?",
@@ -171,6 +202,21 @@ P_COUNT_DEPT = [
     "How many people work in {dept}?",
     "What is the staff count for {dept}?",
     "Tell me the number of employees assigned to {dept}.",
+    # Same magnitude lesson, scoped to one department: asking how *big* a team is
+    # counts people. The contrastive P_SUM_IN_DEPT below adds up their salaries.
+    "How large is the {dept} team?",
+    "What is the headcount for {dept}?",
+    "What is the size of the {dept} team?",
+    "How big is our {dept} group?",
+    "Give me the total headcount in {dept}.",
+]
+# Contrastive partner for the magnitude wordings above: same "total" word, but a
+# money noun, so the model has to read *what* is being totalled instead of firing
+# SUM(salary) at every sentence containing "total".
+P_SUM_IN_DEPT = [
+    "What is the total salary paid in the {dept} department?",
+    "Add up the salaries of the {dept} team.",
+    "What is the {dept} department's total payroll?",
 ]
 P_AGG_SALARY = [
     "What is the {word} salary of all employees?",
@@ -258,6 +304,37 @@ P_EXTREME_MIN = [
     "Name the employee at the bottom of the pay scale.",
     "Which employee has the smallest salary?",
 ]
+# More "extreme row" targets, on other columns and the other table. Asking for a
+# *row* ("which employee / which department") has to stay clearly distinct from
+# asking for a *value* ("what is the highest salary"), which is an ORDER BY ...
+# LIMIT 1 versus a bare MAX(). With only the salary pair, and one of those two
+# targets removed by the leakage filter, the pattern was the thinnest in the set
+# and the model started answering "who is our lowest-paid employee" with
+# MIN(salary).
+P_EXTREME_RECENT = [
+    "Find the name of the most recently hired employee.",
+    "Who joined the company most recently? Give the name.",
+    "Name the newest hire.",
+    "Which employee has the latest hire date?",
+]
+P_EXTREME_EARLIEST = [
+    "Find the name of the longest-serving employee.",
+    "Who was hired first? Give the name.",
+    "Name the employee with the earliest hire date.",
+    "Which employee has been here the longest?",
+]
+P_EXTREME_DEPT_MAX = [
+    "Find the name of the department with the largest budget.",
+    "Which department is the best funded? Give its name.",
+    "Name the department at the top of the budget list.",
+    "Which department has the highest budget?",
+]
+P_EXTREME_DEPT_MIN = [
+    "Find the name of the department with the smallest budget.",
+    "Which department is the least funded? Give its name.",
+    "Name the department at the bottom of the budget list.",
+    "Which department has the lowest budget?",
+]
 P_TOP_N_DESC = [
     "List the names of the top {n} highest paid employees.",
     "Give me the names of the {n} employees with the largest salaries.",
@@ -278,6 +355,20 @@ P_GROUP_AGG = [
     "Group by department and report the {phrase}.",
     "Per department, what is the {phrase}?",
 ]
+# The same GROUP BY lesson on the other table, so "group and report the
+# aggregate" is not tied to one table. Without it the pattern was thin enough
+# that the model answered "break down the number of employees by department"
+# with a bare GROUP BY and no COUNT(*) column.
+P_GROUP_LOC_COUNT = [
+    "Show each location and the number of departments in it.",
+    "For every location, give the department count.",
+    "Group the departments by location and count them.",
+]
+P_GROUP_LOC_AGG = [
+    "For each location, show the {phrase} of the departments there.",
+    "Group the departments by location and report the {phrase}.",
+    "Per location, what is the {phrase} of the departments?",
+]
 P_HAVING_GT = [
     "List departments that have more than {n} employees.",
     "Which departments employ more than {n} people?",
@@ -289,6 +380,93 @@ P_HAVING_LT = [
     "Which departments employ fewer than {n} people?",
     "Show the departments with under {n} staff members.",
     "Name the departments with less than {n} employees.",
+]
+
+# ---------------------------------------------------------------------------
+# Multi-table JOINs. The employees schema is denormalised, so the two tables are
+# related by a TEXT key (employees.department = departments.name) rather than an
+# integer foreign key; employees also references itself through manager_id. Both
+# shapes are taught here. Every join target is written with fully-qualified
+# column names so the model learns which table each column comes from.
+# ---------------------------------------------------------------------------
+JOIN_DEPT = "FROM employees JOIN departments ON employees.department = departments.name"
+JOIN_SELF = "FROM employees e JOIN employees m ON e.manager_id = m.id"
+
+P_JOIN_PROJECT = [
+    "List each employee's {ecol} together with the {dcol} of their department.",
+    "Show each employee's {ecol} and their department's {dcol}.",
+    "For every employee, give their {ecol} and the {dcol} of the department they work in.",
+    "Pair each employee's {ecol} with the {dcol} of their department.",
+]
+P_JOIN_WHERE_LOC = [
+    "List the names of employees who work in departments located in {loc}.",
+    "Which employees work in {loc}-based departments? Names only.",
+    "Name the staff whose department sits in {loc}.",
+]
+P_JOIN_WHERE_BUDGET_GT = [
+    "List the names of employees whose department has a budget over {n}.",
+    "Which employees belong to departments funded above {n}? Names only.",
+    "Name the staff working in departments with a budget greater than {n}.",
+]
+P_JOIN_WHERE_BUDGET_LT = [
+    "List the names of employees whose department has a budget under {n}.",
+    "Which employees belong to departments funded below {n}? Names only.",
+    "Name the staff working in departments with a budget smaller than {n}.",
+]
+P_JOIN_COUNT_LOC = [
+    "How many employees work in departments located in {loc}?",
+    "Count the employees whose department is based in {loc}.",
+    "How many people work out of the {loc} departments?",
+]
+P_JOIN_AGG_LOC = [
+    "What is the {word} salary among employees in departments located in {loc}?",
+    "Find the {word} salary across the {loc} departments.",
+    "Among staff in {loc}-based departments, what is the {word} salary?",
+]
+P_JOIN_GROUP_AGG = [
+    "For each department location, show the location and the {phrase} of the employees working there.",
+    "Group employees by their department's location and report the {phrase}.",
+    "Per department location, what is the {phrase}?",
+]
+P_JOIN_GROUP_COUNT = [
+    "For each department location, show the location and how many employees work there.",
+    "Group the employees by their department's location and count them.",
+    "Per department location, give the employee count.",
+]
+P_JOIN_HAVING_GT = [
+    "List the department locations that have more than {n} employees.",
+    "Which locations employ more than {n} people across their departments?",
+    "Show the department locations with over {n} staff members.",
+]
+P_JOIN_HAVING_LT = [
+    "List the department locations that have fewer than {n} employees.",
+    "Which locations employ fewer than {n} people across their departments?",
+    "Show the department locations with under {n} staff members.",
+]
+P_JOIN_ORDER = [
+    "List the names of employees in {loc} departments, ordered by salary in {word} order.",
+    "Sort the staff in {loc}-based departments by salary {word} and list their names.",
+    "Show employee names for the {loc} departments, sorted by salary {word}.",
+]
+P_JOIN_TOP1 = [
+    "Find the name of the highest paid employee working in a department located in {loc}.",
+    "Who earns the most among the staff in {loc}-based departments? Give the name.",
+    "Name the top earner across the {loc} departments.",
+]
+P_SELF_JOIN_PROJECT = [
+    "List each employee's name along with their manager's {mcol}.",
+    "Show every employee's name and the {mcol} of their manager.",
+    "For each employee who has a manager, give the employee's name and the manager's {mcol}.",
+]
+P_SELF_JOIN_COUNT = [
+    "How many employees have a manager?",
+    "Count the employees who report to someone.",
+    "How many staff members have a manager assigned?",
+]
+P_SELF_JOIN_WHERE = [
+    "List the names of employees whose manager works in the {dept} department.",
+    "Which employees report to a manager in {dept}? Names only.",
+    "Name the staff whose manager belongs to {dept}.",
 ]
 
 
@@ -377,6 +555,12 @@ def generate_candidates() -> List[Example]:
         add("agg_in_dept", P_AGG_IN_DEPT_MAX,
             f"SELECT MAX(salary) FROM employees WHERE department = '{dept}'", dept=dept)
 
+    # -- SUM within a department: the contrastive partner of the "how big is
+    #    the {dept} team?" count above. Both say "total"; only one means money.
+    for dept in DEPARTMENTS:
+        add("sum_in_dept", P_SUM_IN_DEPT,
+            f"SELECT SUM(salary) FROM employees WHERE department = '{dept}'", dept=dept)
+
     # -- departments COUNT by location --------------------------------------
     for loc in LOCATIONS:
         add("count_location", P_COUNT_LOCATION,
@@ -387,6 +571,14 @@ def generate_candidates() -> List[Example]:
         "SELECT name FROM employees ORDER BY salary DESC LIMIT 1")
     add("extreme_one", P_EXTREME_MIN,
         "SELECT name FROM employees ORDER BY salary ASC LIMIT 1")
+    add("extreme_one", P_EXTREME_RECENT,
+        "SELECT name FROM employees ORDER BY hire_date DESC LIMIT 1")
+    add("extreme_one", P_EXTREME_EARLIEST,
+        "SELECT name FROM employees ORDER BY hire_date ASC LIMIT 1")
+    add("extreme_one", P_EXTREME_DEPT_MAX,
+        "SELECT name FROM departments ORDER BY budget DESC LIMIT 1")
+    add("extreme_one", P_EXTREME_DEPT_MIN,
+        "SELECT name FROM departments ORDER BY budget ASC LIMIT 1")
 
     # -- top-N (ORDER BY ... LIMIT n), both directions ----------------------
     for n in TOP_N:
@@ -404,6 +596,12 @@ def generate_candidates() -> List[Example]:
         add("group_by", P_GROUP_AGG,
             f"SELECT department, {agg}(salary) FROM employees GROUP BY department",
             phrase=phrase)
+    add("group_by", P_GROUP_LOC_COUNT,
+        "SELECT location, COUNT(*) FROM departments GROUP BY location")
+    for agg, phrase in [("AVG", "average budget"), ("SUM", "total budget")]:
+        add("group_by", P_GROUP_LOC_AGG,
+            f"SELECT location, {agg}(budget) FROM departments GROUP BY location",
+            phrase=phrase)
 
     # -- GROUP BY ... HAVING, both directions -------------------------------
     for n in HAVING_N:
@@ -413,6 +611,79 @@ def generate_candidates() -> List[Example]:
         add("having", P_HAVING_LT,
             f"SELECT department FROM employees GROUP BY department "
             f"HAVING COUNT(*) < {n}", n=n)
+
+    # -----------------------------------------------------------------------
+    # Multi-table JOINs. Parameter pools are deliberately narrower here than
+    # above: each pattern is capped at MAX_PER_CATEGORY anyway, so trading
+    # literal breadth for phrasing depth means every join target is still asked
+    # several ways after balancing (see balance_categories).
+    # -----------------------------------------------------------------------
+
+    # -- project columns from both tables -----------------------------------
+    for ecol in ["name", "salary", "hire_date"]:
+        for dcol in ["budget", "location"]:
+            add("join_project", P_JOIN_PROJECT,
+                f"SELECT employees.{ecol}, departments.{dcol} {JOIN_DEPT}",
+                ecol=ecol.replace("_", " "), dcol=dcol)
+
+    # -- filter on a column that only exists in the joined table ------------
+    for loc in LOCATIONS[:4]:
+        add("join_where", P_JOIN_WHERE_LOC,
+            f"SELECT employees.name {JOIN_DEPT} WHERE departments.location = '{loc}'",
+            loc=loc)
+    for n in BUDGET_THRESHOLDS[:2]:
+        add("join_where", P_JOIN_WHERE_BUDGET_GT,
+            f"SELECT employees.name {JOIN_DEPT} WHERE departments.budget > {n}", n=n)
+        add("join_where", P_JOIN_WHERE_BUDGET_LT,
+            f"SELECT employees.name {JOIN_DEPT} WHERE departments.budget < {n}", n=n)
+
+    # -- aggregate over a join, filtered by the joined table ----------------
+    for loc in LOCATIONS[:4]:
+        add("join_count", P_JOIN_COUNT_LOC,
+            f"SELECT COUNT(*) {JOIN_DEPT} WHERE departments.location = '{loc}'", loc=loc)
+    for agg, word in AGGS.items():
+        for loc in LOCATIONS[:2]:
+            add("join_count", P_JOIN_AGG_LOC,
+                f"SELECT {agg}(employees.salary) {JOIN_DEPT} "
+                f"WHERE departments.location = '{loc}'", word=word, loc=loc)
+
+    # -- GROUP BY a column of the joined table (impossible without the join) --
+    add("join_group", P_JOIN_GROUP_COUNT,
+        f"SELECT departments.location, COUNT(*) {JOIN_DEPT} GROUP BY departments.location")
+    for agg, phrase in [("AVG", "average salary"),
+                        ("SUM", "total salary paid"),
+                        ("MAX", "highest salary")]:
+        add("join_group", P_JOIN_GROUP_AGG,
+            f"SELECT departments.location, {agg}(employees.salary) {JOIN_DEPT} "
+            f"GROUP BY departments.location", phrase=phrase)
+    for n in HAVING_N[2:]:
+        add("join_group", P_JOIN_HAVING_GT,
+            f"SELECT departments.location {JOIN_DEPT} GROUP BY departments.location "
+            f"HAVING COUNT(*) > {n}", n=n)
+        add("join_group", P_JOIN_HAVING_LT,
+            f"SELECT departments.location {JOIN_DEPT} GROUP BY departments.location "
+            f"HAVING COUNT(*) < {n}", n=n)
+
+    # -- ORDER BY / LIMIT over a filtered join ------------------------------
+    for loc in LOCATIONS[:3]:
+        for word, direction in [("descending", "DESC"), ("ascending", "ASC")]:
+            add("join_order", P_JOIN_ORDER,
+                f"SELECT employees.name {JOIN_DEPT} "
+                f"WHERE departments.location = '{loc}' "
+                f"ORDER BY employees.salary {direction}", loc=loc, word=word)
+    for loc in LOCATIONS[:4]:
+        add("join_order", P_JOIN_TOP1,
+            f"SELECT employees.name {JOIN_DEPT} WHERE departments.location = '{loc}' "
+            f"ORDER BY employees.salary DESC LIMIT 1", loc=loc)
+
+    # -- self-join: a row of employees related to another row of employees ---
+    for mcol in ["name", "salary", "department", "hire_date"]:
+        add("self_join", P_SELF_JOIN_PROJECT,
+            f"SELECT e.name, m.{mcol} {JOIN_SELF}", mcol=mcol.replace("_", " "))
+    add("self_join", P_SELF_JOIN_COUNT, f"SELECT COUNT(*) {JOIN_SELF}")
+    for dept in DEPARTMENTS[:4]:
+        add("self_join", P_SELF_JOIN_WHERE,
+            f"SELECT e.name {JOIN_SELF} WHERE m.department = '{dept}'", dept=dept)
 
     return out
 
@@ -643,17 +914,6 @@ def main() -> int:
         print(f"   train: {rep['worst_pair'][0]}")
         print(f"   eval : {rep['worst_pair'][1]}")
     print("-" * 64)
-    print("per-pattern (category) counts among kept examples:")
-    train_cats = Counter(c for c, _, _ in train)
-    val_cats = Counter(c for c, _, _ in val)
-    for cat in sorted(rep["by_cat"]):
-        print(f"  {cat:16s} total={rep['by_cat'][cat]:3d}  "
-              f"train={train_cats.get(cat,0):3d}  val={val_cats.get(cat,0):2d}")
-    print("-" * 64)
-    print(f"wrote {train_path.relative_to(REPO_ROOT)}")
-    print(f"wrote {val_path.relative_to(REPO_ROOT)}")
-    print("=" * 64)
-    return 0
     print("per-pattern (category) counts among kept examples:")
     train_cats = Counter(c for c, _, _ in train)
     val_cats = Counter(c for c, _, _ in val)
