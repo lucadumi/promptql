@@ -11,3 +11,12 @@
 | 2026-07-29T11:15:31+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-aug` | text2sql_eval | mps | 20 | 100.0% | 100.0% |
 | 2026-07-29T11:15:42+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-aug` | text2sql_eval_paraphrase | mps | 20 | 80.0% | 90.0% |
 | 2026-07-29T11:15:52+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-aug` | text2sql_eval_bookstore | mps | 20 | 100.0% | 100.0% |
+| 2026-07-30T11:43:18+00:00 | `Qwen/Qwen2.5-0.5B-Instruct` | text2sql_eval_join | mps | 12 | 0.0% | 8.3% |
+| 2026-07-30T11:43:30+00:00 | `Qwen/Qwen2.5-0.5B-Instruct` | text2sql_eval_join_bookstore | mps | 11 | 0.0% | 63.6% |
+| 2026-07-30T11:43:39+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-aug` | text2sql_eval_join | mps | 12 | 0.0% | 0.0% |
+| 2026-07-30T11:43:48+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-aug` | text2sql_eval_join_bookstore | mps | 11 | 0.0% | 9.1% |
+| 2026-07-30T12:36:29+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join` | text2sql_eval | mps | 20 | 95.0% | 95.0% |
+| 2026-07-30T12:36:39+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join` | text2sql_eval_paraphrase | mps | 20 | 90.0% | 95.0% |
+| 2026-07-30T12:36:50+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join` | text2sql_eval_bookstore | mps | 20 | 100.0% | 100.0% |
+| 2026-07-30T12:37:01+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join` | text2sql_eval_join | mps | 12 | 100.0% | 100.0% |
+| 2026-07-30T12:37:12+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join` | text2sql_eval_join_bookstore | mps | 11 | 90.9% | 100.0% |
