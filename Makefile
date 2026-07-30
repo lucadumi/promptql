@@ -13,7 +13,7 @@ ADAPTER ?= adapters/lora-qwen2.5-0.5b-join
 #   make train TRAIN_ARGS="--batch-size 4 --grad-accum 2"
 TRAIN_ARGS ?=
 
-.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all test lint clean
+.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all eval-blind test lint clean
 
 help:
 	@echo "make setup     - create venv and install local (CPU/MPS) requirements"
@@ -25,7 +25,8 @@ help:
 	@echo "make eval-ood  - evaluate the adapter on the out-of-template (reworded) eval set"
 	@echo "make eval-schema - evaluate base + adapter on the second (bookstore) schema"
 	@echo "make eval-join - evaluate base + adapter on the multi-table JOIN eval sets"
-	@echo "make eval-all  - evaluate the adapter on all five eval sets (regression check)"
+	@echo "make eval-all  - evaluate the adapter on all five DEV eval sets (regression check)"
+	@echo "make eval-blind  - HELD-BACK set: score base + adapter ONCE, then stop (see README)"
 	@echo "make test      - run the fast unit tests (no model download)"
 	@echo "make lint      - run ruff (real-error rules) over the repo"
 	@echo "make freeze    - pin installed versions into requirements.txt"
@@ -82,9 +83,13 @@ eval-join:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
 
-# Run the adapter over every eval set: in-template, reworded, unseen schema, and
-# the two JOIN sets. Use this after retraining to check a gain on one set is not
-# a loss on another.
+# Run the adapter over every DEVELOPMENT eval set: in-template, reworded, unseen
+# schema, and the two JOIN sets. Use this after retraining to check a gain on one
+# set is not a loss on another.
+#
+# `eval-blind` is deliberately NOT part of this target. Every set below has fed at
+# least one data-curation decision, which is what makes them development signal;
+# the blind set only keeps its meaning while it stays out of that loop.
 eval-all:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
@@ -95,6 +100,17 @@ eval-all:
 		--eval-file data/eval/text2sql_eval_join.jsonl
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
+
+# The held-back set. Written after the model was frozen, never used to diagnose a
+# failure or steer the training data, and excluded from `eval-all` so it cannot
+# quietly become development signal. Protocol: score a given model ONCE, record
+# the number, and do not curate against it. Reading a failure here and "fixing"
+# it converts this into just another dev set, and the project loses the only
+# unbiased estimate it has.
+eval-blind:
+	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind.jsonl
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_blind.jsonl
 
 clean:
 	rm -rf $(VENV) src/__pycache__ **/__pycache__
