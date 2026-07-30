@@ -13,7 +13,10 @@ ADAPTER ?= adapters/lora-qwen2.5-0.5b-join
 #   make train TRAIN_ARGS="--batch-size 4 --grad-accum 2"
 TRAIN_ARGS ?=
 
-.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all eval-blind test lint clean
+# Extra flags for `make serve`, e.g. SERVE_ARGS="--quantize --port 9000".
+SERVE_ARGS ?=
+
+.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all eval-blind compare quantized serve test lint clean
 
 help:
 	@echo "make setup     - create venv and install local (CPU/MPS) requirements"
@@ -27,6 +30,9 @@ help:
 	@echo "make eval-join - evaluate base + adapter on the multi-table JOIN eval sets"
 	@echo "make eval-all  - evaluate the adapter on all five DEV eval sets (regression check)"
 	@echo "make eval-blind  - HELD-BACK set: score base + adapter ONCE, then stop (see README)"
+	@echo "make compare   - score a 3x larger model zero-shot on every set (is the FT worth it?)"
+	@echo "make quantized - score the int8-quantized adapter (accuracy cost of quantizing)"
+	@echo "make serve     - serve the adapter over HTTP on :8000 (POST /sql)"
 	@echo "make test      - run the fast unit tests (no model download)"
 	@echo "make lint      - run ruff (real-error rules) over the repo"
 	@echo "make freeze    - pin installed versions into requirements.txt"
@@ -111,6 +117,38 @@ eval-blind:
 	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind.jsonl
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_blind.jsonl
+
+# Is a fine-tuned small model actually worth it, or would a bigger model do? This
+# scores COMPARE_MODEL zero-shot on every set, including the held-back one, so the
+# adapter has to justify itself against simply using a 3x larger model.
+COMPARE_MODEL ?= Qwen/Qwen2.5-1.5B-Instruct
+
+compare:
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL)
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
+		--eval-file data/eval/text2sql_eval_paraphrase.jsonl
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
+		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
+		--eval-file data/eval/text2sql_eval_join.jsonl
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
+		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
+		--eval-file data/eval/text2sql_eval_blind.jsonl
+
+# What does quantization cost in accuracy? int8 is CPU-only, so this also runs the
+# fp32 comparison on CPU -- comparing an int8 CPU run against an fp32 MPS run would
+# confound quantization with the device.
+quantized:
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu --quantize
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu \
+		--eval-file data/eval/text2sql_eval_blind.jsonl
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu --quantize \
+		--eval-file data/eval/text2sql_eval_blind.jsonl
+
+serve:
+	$(PY) -m src.serve --adapter $(ADAPTER) $(SERVE_ARGS)
 
 clean:
 	rm -rf $(VENV) src/__pycache__ **/__pycache__
