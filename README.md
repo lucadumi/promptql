@@ -42,7 +42,8 @@ not the 98%, is the real answer to "was the fine-tune worth it?" - see
 [Is the fine-tune worth it?](#is-the-fine-tune-worth-it-vs-a-3x-larger-model) ·
 [Deploying it](#deploying-it-quantization-and-a-small-api) ·
 [Honest caveats](#honest-caveats) · [Quickstart](#quickstart) ·
-[Method](#how-it-works-method) · [Repo layout](#repo-layout) · [Roadmap](#roadmap)
+[Method](#how-it-works-method) · [Repo layout](#repo-layout) · [Roadmap](#roadmap) ·
+[License](#license)
 
 ---
 
@@ -605,7 +606,8 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 ├── requirements.txt       # pinned lockfile (pip freeze)
 ├── requirements-gpu.txt   # CUDA-only extras (bitsandbytes) for a GPU box
 ├── requirements-dev.txt   # lint + test only, used by CI
-└── Makefile               # setup / smoke / baseline / data / train / eval-* / test / lint
+├── LICENSE                # MIT
+└── Makefile               # setup / smoke / baseline / data / train / eval-* / serve / test
 ```
 
 ---
@@ -664,3 +666,23 @@ corpus.
 **Why this project.** An end-to-end demonstration of small-LLM post-training and honest
 evaluation - data curation, LoRA fine-tuning, memory troubleshooting, and a rigorous
 before/after comparison on held-out sets - rather than calling a hosted API.
+
+---
+
+## License
+
+[MIT](LICENSE) - the code, the eval sets, the generated training data and the committed
+results are all free to use, modify and redistribute with attribution.
+
+Two things in this repo are **not** covered by that licence, because they are not mine to
+license:
+
+- **The base model.** `Qwen2.5-0.5B-Instruct` (and the `Qwen2.5-1.5B-Instruct` used in the
+  comparison) are released by Alibaba Cloud under **Apache-2.0**. Nothing here redistributes
+  their weights - the scripts download them from Hugging Face at run time.
+- **Anything derived from those weights.** The LoRA adapter is a delta on top of a Qwen
+  model, so a trained adapter carries the base model's terms with it. `adapters/` is
+  gitignored, so this repo ships none - `make data && make train` builds one locally.
+
+In short: the *method*, the data and the measurements are MIT; the *model* stays under
+Apache-2.0.
