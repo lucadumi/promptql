@@ -8,21 +8,21 @@ it first, fine-tune it with LoRA on a narrow task, then re-measure on held-out s
 honest about what got *worse*, not just what got better. It is deliberately small and cheap
 so the whole loop runs on a laptop - the point is the *method*, not the model size.
 
-**Status:** ✅ fine-tuned and evaluated on five development sets **plus one held-back blind
-set**. A LoRA adapter training only **0.88%** of the parameters takes
-`Qwen2.5-0.5B-Instruct` from **55% → 98%** execution accuracy on the sets used during
-development - and, on a set written *after* the model was frozen and scored exactly once,
-from **29% → 75%**.
+**Status:** ✅ fine-tuned, evaluated on five development sets **plus one held-back blind
+set**, benchmarked against a 3x larger model, and served behind an API. A LoRA adapter
+training only **0.88%** of the parameters takes `Qwen2.5-0.5B-Instruct` from **55% → 98%**
+execution accuracy on the sets used during development - and, on a set written *after* the
+model was frozen and scored exactly once, from **29% → 75%**.
 
-| Eval set | n | what it isolates | base | **+ LoRA** |
-|---|:--:|---|:--:|:--:|
-| in-template | 20 | the trained SQL patterns, unseen literals | 65% | **95%** |
-| out-of-template | 20 | unfamiliar **phrasing**, same golds | 55% | **95%** |
-| cross-schema | 20 | an unseen **schema** (bookstore) | 70% | **100%** |
-| JOIN (text key) | 12 | multi-table joins + a self-join | 8% | **100%** |
-| JOIN (integer FK) | 11 | joins on a key **absent from training** | 64% | **100%** |
-| *all development sets* | *83* | | *55%* | *98%* |
-| **held-back (blind)** | **24** | **fresh intents, incl. untaught constructs** | **29%** | **75%** |
+| Eval set | n | what it isolates | base 0.5B | 1.5B zero-shot | **0.5B + LoRA** |
+|---|:--:|---|:--:|:--:|:--:|
+| in-template | 20 | the trained SQL patterns, unseen literals | 65% | 95% | **95%** |
+| out-of-template | 20 | unfamiliar **phrasing**, same golds | 55% | 85% | **95%** |
+| cross-schema | 20 | an unseen **schema** (bookstore) | 70% | 100% | **100%** |
+| JOIN (text key) | 12 | multi-table joins + a self-join | 8% | 67% | **100%** |
+| JOIN (integer FK) | 11 | joins on a key **absent from training** | 64% | 91% | **100%** |
+| *all development sets* | *83* | | *55%* | *89%* | *98%* |
+| **held-back (blind)** | **24** | **fresh intents, incl. untaught constructs** | **29%** | **75%** | **75%** |
 
 <sub>Execution accuracy; exact-match is 30% → 95% (dev) and 21% → 71% (blind). Greedy
 (deterministic) decoding on Apple Silicon (MPS). Full per-example predictions in `results/`.</sub>
@@ -32,8 +32,15 @@ and acted upon during development; **75% is the honest estimate** of what it doe
 questions nobody tuned anything toward. The gap between those two numbers is the single most
 useful thing this repo measures - see [the blind result](#the-blind-result-what-it-scores-when-nobody-is-steering).
 
+**Then read the last two columns.** A 3x larger model, prompted zero-shot, ties the fine-tune
+on that blind set - and the two fail on **completely disjoint questions**. That comparison,
+not the 98%, is the real answer to "was the fine-tune worth it?" - see
+[is the fine-tune worth it?](#is-the-fine-tune-worth-it-vs-a-3x-larger-model).
+
 **Jump to:** [The task](#the-task-text-to-sql) · [How it is measured](#how-it-is-measured) ·
 [Results](#results) · [Experiment log](#experiment-log-how-it-got-here) ·
+[Is the fine-tune worth it?](#is-the-fine-tune-worth-it-vs-a-3x-larger-model) ·
+[Deploying it](#deploying-it-quantization-and-a-small-api) ·
 [Honest caveats](#honest-caveats) · [Quickstart](#quickstart) ·
 [Method](#how-it-works-method) · [Repo layout](#repo-layout) · [Roadmap](#roadmap)
 
@@ -348,6 +355,124 @@ estimate at all. They are recorded here as findings; the next honest measurement
 
 ---
 
+## Is the fine-tune worth it? (vs. a 3x larger model)
+
+Every number above compares the fine-tune to *its own base model*, which is the wrong
+baseline for the only decision a reader actually cares about: **should I fine-tune a small
+model, or just use a bigger one?** So `Qwen2.5-1.5B-Instruct` - 3x the parameters, no
+fine-tuning, same prompt, same greedy decoding - was scored on all six sets.
+
+| Eval set | n | 0.5B base | **1.5B zero-shot** | **0.5B + LoRA** |
+|---|:--:|:--:|:--:|:--:|
+| in-template | 20 | 65% | 95% | **95%** |
+| out-of-template | 20 | 55% | 85% | **95%** |
+| cross-schema | 20 | 70% | 100% | **100%** |
+| JOIN (employees, text key) | 12 | 8% | 67% | **100%** |
+| JOIN (bookstore, integer FK) | 11 | 64% | 91% | **100%** |
+| *development total* | *83* | *55%* | *89%* | ***98%*** |
+| **held-back (blind)** | **24** | **29%** | **75%** | **75%** |
+
+<sub>Execution accuracy. Across all 107 questions: 50% / 86% / 93% exec, 28% / 50% / 90%
+exact-match.</sub>
+
+**On the development sets the fine-tune wins** (98% vs 89%) at a third of the size - which is
+the standard argument for task-specific fine-tuning, and it holds here. **On the blind set
+they tie exactly: 18/24 each.**
+
+The tie is far more interesting than a win would have been, because the two models fail on
+**completely disjoint questions**:
+
+| | 1.5B zero-shot | 0.5B + LoRA |
+|---|---|---|
+| `GROUP BY ... HAVING AVG(salary) > 100000` | ✗ built a needless join + subquery | ✓ |
+| `COUNT(*) ... WHERE budget < (SELECT AVG...)` | ✗ grouped by the wrong table | ✓ |
+| filtered self-join for managers | ✗ joined `departments` instead | ✓ |
+| "hired in 2021" | ✓ `STRFTIME('%Y', ...)` | ✗ `YEAR()` - not a SQLite function |
+| "the distinct locations" | ✓ `SELECT DISTINCT` | ✗ dropped `DISTINCT` |
+| "employees with no manager" | ✓ `IS NULL` | ✗ a self-join |
+
+Every question the LoRA wins is **inside the taxonomy it was taught**; every question it
+loses needs a construct that appears in **no training template**. The fine-tune bought
+precision within its syllabus - it also matches the house SQL style far more often (90% vs
+50% exact-match) - and bought nothing at all outside it. The 1.5B, meanwhile, is a generalist
+that over-engineers the things it does know.
+
+**The honest read:** if the query distribution is known and narrow, the 0.5B fine-tune is the
+better deal - a third of the parameters, better in-distribution accuracy, and it runs on a
+laptop. If it is open-ended, the bigger model is the safer default, and the fine-tune's
+advantage on the development sets partly reflects the fact that those sets were used to
+develop it. Both statements are supported by the table; neither would have been visible
+without the blind set.
+
+---
+
+## Deploying it: quantization and a small API
+
+### Quantization: measured, and not recommended here
+
+The roadmap listed quantization as an optional last step. It is implemented
+(`--quantize`, dynamic int8 on the linear layers, CPU-only per PyTorch), and - because
+"quantized successfully" is not a result - it was scored on the same sets rather than just
+demonstrated:
+
+| | size | in-template | blind | latency (blind) |
+|---|:--:|:--:|:--:|:--:|
+| fp32 (CPU) | 1976 MB | **95%** | **75%** | **20.2s** |
+| int8 dynamic (CPU) | **1041 MB** | 75% | 21% | 25.8s |
+
+**It loses on every axis that matters.** Memory halves, which is real, but in-template
+accuracy drops 20 points and the blind set collapses from 75% to 21% - and it is *slower*,
+because dynamic quantization re-quantizes activations per forward pass and Apple Silicon has
+no optimised int8 path for these kernels.
+
+That is not a surprising outcome for a 0.5B model: there is little redundancy left to
+discard, so aggressive post-training quantization removes signal rather than slack.
+Quantization pays off at 7B+, or with a calibration set and static quantization, neither of
+which this project has. **The feature ships; the recommendation is not to use it**, and the
+numbers explaining why ship with it.
+
+<sub>fp32 is measured on CPU too, not MPS - comparing an int8 CPU run against an fp32 GPU run
+would confound quantization with the device. A note on the plumbing: quantizing a `PeftModel`
+directly would leave the LoRA layers in float and quantize *around* them, so the adapter is
+merged into the base weights first.</sub>
+
+### The API
+
+`src/serve.py` puts the model behind an HTTP endpoint, and because the schema has a real
+seeded database behind it, the API **runs** the SQL it generates and returns actual rows -
+question → SQL → answer, end to end:
+
+```console
+$ make serve
+Serving Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join on http://127.0.0.1:8000
+
+$ curl -s localhost:8000/sql -d '{"question": "How many employees are in the Sales department?"}'
+{
+  "question": "How many employees are in the Sales department?",
+  "sql": "SELECT COUNT(*) FROM employees WHERE department = 'Sales'",
+  "schema": "employees",
+  "columns": ["COUNT(*)"],
+  "rows": [[4]],
+  "row_count": 1
+}
+```
+
+Pass `"schema": "bookstore"` to query the other schema, or `"execute": false` to get the SQL
+without running it. Two deliberate choices:
+
+- **No web framework.** It uses `http.server` from the standard library. CI installs neither
+  torch nor transformers, and a text-to-SQL demo does not need FastAPI to prove anything.
+- **Executing model output demands a guard.** Generated SQL is refused unless it is a single
+  read-only `SELECT`, so a hallucinated `DROP TABLE` never reaches the database, and a
+  broken query returns a 422 with the error rather than a stack trace.
+
+The whole request path - routing, validation, status codes, the safety filter, execution - is
+covered by `tests/test_serve.py` **without torch**: `src/serve.py` defers every heavy import
+and expresses its logic against a plain `generate(question, schema) -> sql` callable, so a
+stub generator exercises all of it in milliseconds on a CI box with no model.
+
+---
+
 ## Honest caveats
 
 - **The wins are leakage-free.** No eval question or gold SQL appears in training, enforced in
@@ -370,9 +495,15 @@ estimate at all. They are recorded here as findings; the next honest measurement
   SQL shapes, unseen literal values). The other sets exist because that number alone would
   overstate the model.
 - **Everything here is one small model on two small schemas.** 20-24 questions per set means
-  a single example is worth 4-5 points, so small differences are noise. The point of the repo
-  is the *method* - measure first, isolate one variable per set, and keep one set honest -
-  not the absolute scores.
+  a single example is worth 4-5 points, so small differences are noise - the 1.5B-vs-LoRA tie
+  on the blind set is a tie, not evidence that they are equally good. The point of the repo is
+  the *method* - measure first, isolate one variable per set, and keep one set honest - not
+  the absolute scores.
+- **The adapter is not in the repo.** `adapters/` is gitignored (weights do not belong in
+  git), so a fresh clone reproduces the numbers with `make data && make train`, ~17 minutes on
+  a laptop GPU. The training data *is* committed and the generator is seeded, so the input is
+  byte-reproducible; the trained weights are not bit-identical across devices, and small
+  eval-score wobble between runs on different hardware is expected.
 
 ---
 
@@ -388,11 +519,19 @@ make baseline    # reproduce the 40% baseline (downloads Qwen2.5-0.5B-Instruct o
 make data        # (re)generate the de-leaked NL->SQL training set into data/train/
 make train       # LoRA fine-tune on data/train/ -> adapters/ (uses MPS / CPU / CUDA)
 make eval-all    # score the adapter on the five development sets (regression check)
+make serve       # serve the adapter over HTTP on :8000 (POST /sql)
 make test        # fast unit tests, no model download
 ```
 
+**Reproducing the headline numbers takes one command and ~17 minutes.** `adapters/` is
+gitignored - trained weights do not belong in git - so a fresh clone has no adapter and
+`make eval-ft` will tell you so. `make data && make train` builds it; the training data is
+committed and the generator is seeded, so the *input* is byte-reproducible.
+
 Individual eval targets: `eval-ft` (in-template), `eval-ood` (reworded), `eval-schema`
-(bookstore, base + adapter), `eval-join` (both JOIN sets).
+(bookstore, base + adapter), `eval-join` (both JOIN sets). Two further comparisons:
+`make compare` scores a 3x larger model zero-shot on every set, and `make quantized` measures
+what int8 costs in accuracy.
 
 There is also `make eval-blind`, which scores the **held-back** set. It is intentionally not
 part of `eval-all`: it is meant to be run once against a finished model, after which its
@@ -408,11 +547,12 @@ effective batch size (8), and therefore the optimizer schedule, are unchanged:
 make train TRAIN_ARGS="--batch-size 4 --grad-accum 2"   # ~17 min on an M-series MPS
 ```
 
-Point any eval target at a different adapter, or try another small model:
+Point any eval target at a different adapter, compare against another model, or serve it:
 
 ```bash
 make eval-all ADAPTER=adapters/lora-qwen2.5-0.5b-aug
-python -m src.eval_baseline --model Qwen/Qwen2.5-1.5B-Instruct
+make compare COMPARE_MODEL=Qwen/Qwen2.5-3B-Instruct
+make serve SERVE_ARGS="--quantize --port 9000"
 python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 10
 ```
 
@@ -436,6 +576,9 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
   → `src/metrics.py`, `src/db.py`
 - **Output** - a machine-readable `results/*.json` per run (every prediction, both metrics)
   plus a human-readable `results/baseline.md` leaderboard.
+- **Serving** - `src/serve.py` exposes the model over HTTP and executes the SQL it generates
+  against the seeded DB, behind a read-only-`SELECT` guard. Stdlib only, and written so its
+  request path is testable without torch. → [Deploying it](#deploying-it-quantization-and-a-small-api)
 
 ---
 
@@ -447,6 +590,7 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 │   ├── eval_baseline.py   # run a model on an eval set, save the before/after numbers
 │   ├── build_dataset.py   # synthesise the de-leaked NL->SQL training set
 │   ├── train_lora.py      # LoRA fine-tune the base model on data/train/
+│   ├── serve.py           # HTTP API: question -> SQL -> rows (stdlib only)
 │   ├── data_utils.py      # both schemas + shared prompt format (keeps train == eval)
 │   ├── db.py              # seeded SQLite DBs + execution-accuracy scoring
 │   └── metrics.py         # SQL normalisation + exact-match scoring
@@ -481,13 +625,19 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
   contrastive `SUM` pattern rather than by memorising the wording.
 - ✅ Get a genuinely **blind** estimate: a held-back set of 24 fresh intents, written after
   the model was frozen and scored once - **29% → 75%**, against 98% on the development sets.
+- ✅ **Justify the fine-tune against a bigger model**: 0.5B+LoRA beats `Qwen2.5-1.5B` zero-shot
+  on the development sets (98% vs 89%) at a third of the size, and ties it on the blind set -
+  failing on entirely disjoint questions.
+- ✅ **Quantize and serve**: int8 is implemented and measured (halves memory, but costs 20-54
+  points and runs slower - not recommended at this size), and the model is served behind a
+  stdlib HTTP API that executes its own SQL.
 - ⬜ Retire and replace the blind set. It has been spent, so the next unbiased measurement
   needs a fresh one, ideally written by someone other than the person curating the data.
 - ⬜ Teach the constructs the blind set found missing (`IS NULL`, `SELECT DISTINCT`, date
-  functions, `LIKE`) - **only** alongside a new blind set, never to chase the old one.
+  functions, `LIKE`) - **only** alongside a new blind set, never to chase the old one. The
+  1.5B comparison suggests this is where the remaining headroom is.
 - ⬜ Close the last in-taxonomy failure (`GROUP BY department` losing to a lexically adjacent
   projection).
-- ⬜ Optional: quantize the model and serve it behind a small API.
 
 ---
 
