@@ -58,6 +58,14 @@ DEPARTMENTS_SEED: List[Tuple[int, str, int, str]] = [
 #     so the "salary > 100000" filter is non-trivial (11 of 20 rows).
 #   - hire_date straddles 2020-01-01 in both directions so the date filter is
 #     discriminating rather than all-or-nothing.
+#   - JOIN invariants (data/eval/text2sql_eval_join.jsonl): every employee's
+#     department matches a departments.name, so the inner join keeps all 20 rows;
+#     the 4 departments sit in only 3 locations (2x New York), so grouping by
+#     location is not grouping by department; New York holds 15 employees (> 10)
+#     while no other location does; the highest London salary (80000) and the
+#     highest Berlin salary (65000) both differ from the global 150000; and the 4
+#     department leads have manager_id NULL, so the manager self-join returns 16
+#     of 20 rows (a LEFT JOIN would return 20).
 EMPLOYEES_SEED: List[Tuple[int, str, str, int, str, Optional[int]]] = [
     # Engineering (11) -- all earn > 100000; Alice is the lead (no manager).
     (1,  "Alice",   "Engineering", 150000, "2021-03-01", None),
@@ -94,6 +102,11 @@ EMPLOYEES_SEED: List[Tuple[int, str, str, int, str, Optional[int]]] = [
 #     MAX); the 'Fiction' genre has 11 books (> 10) for the HAVING query while
 #     every other genre has <= 4; those same 11 Fiction books are the only ones
 #     priced > 30; and published_date straddles 2015-01-01 in both directions.
+#   - JOIN invariants (data/eval/text2sql_eval_join_bookstore.jsonl): publisher_id
+#     is a real integer FK (never NULL), so the inner join keeps all 20 books; the
+#     4 publishers sit in 3 cities, with New York holding 12 books (> 10) and no
+#     other city close; and the top London price (48) and top Berlin price (39)
+#     both differ from the global 60.
 # ---------------------------------------------------------------------------
 PUBLISHERS_SEED: List[Tuple[int, str, int, str]] = [
     (1, "Penguin",       900000, "New York"),
