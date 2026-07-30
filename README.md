@@ -8,9 +8,11 @@ it first, fine-tune it with LoRA on a narrow task, then re-measure on held-out s
 honest about what got *worse*, not just what got better. It is deliberately small and cheap
 so the whole loop runs on a laptop - the point is the *method*, not the model size.
 
-**Status:** ✅ fine-tuned and evaluated on **five** held-out sets. A LoRA adapter training
-only **0.88%** of the parameters takes `Qwen2.5-0.5B-Instruct` from **55% → 98%** execution
-accuracy across all 83 held-out questions.
+**Status:** ✅ fine-tuned and evaluated on five development sets **plus one held-back blind
+set**. A LoRA adapter training only **0.88%** of the parameters takes
+`Qwen2.5-0.5B-Instruct` from **55% → 98%** execution accuracy on the sets used during
+development - and, on a set written *after* the model was frozen and scored exactly once,
+from **29% → 75%**.
 
 | Eval set | n | what it isolates | base | **+ LoRA** |
 |---|:--:|---|:--:|:--:|
@@ -19,10 +21,16 @@ accuracy across all 83 held-out questions.
 | cross-schema | 20 | an unseen **schema** (bookstore) | 70% | **100%** |
 | JOIN (text key) | 12 | multi-table joins + a self-join | 8% | **100%** |
 | JOIN (integer FK) | 11 | joins on a key **absent from training** | 64% | **100%** |
-| **all sets** | **83** | | **55%** | **98%** |
+| *all development sets* | *83* | | *55%* | *98%* |
+| **held-back (blind)** | **24** | **fresh intents, incl. untaught constructs** | **29%** | **75%** |
 
-<sub>Execution accuracy; exact-match is 30% → 95%. Greedy (deterministic) decoding on Apple
-Silicon (MPS). Full per-example predictions in `results/`.</sub>
+<sub>Execution accuracy; exact-match is 30% → 95% (dev) and 21% → 71% (blind). Greedy
+(deterministic) decoding on Apple Silicon (MPS). Full per-example predictions in `results/`.</sub>
+
+**Read the last row first.** 98% is what the model scores on sets whose failures were read
+and acted upon during development; **75% is the honest estimate** of what it does on
+questions nobody tuned anything toward. The gap between those two numbers is the single most
+useful thing this repo measures - see [the blind result](#the-blind-result-what-it-scores-when-nobody-is-steering).
 
 **Jump to:** [The task](#the-task-text-to-sql) · [How it is measured](#how-it-is-measured) ·
 [Results](#results) · [Experiment log](#experiment-log-how-it-got-here) ·
@@ -75,7 +83,7 @@ query returns a *discriminating* result: distinct salaries, one department with 
 budgets/locations/hire-dates that straddle the eval thresholds. A wrong query returns
 different rows.
 
-### Five eval sets, each changing exactly one variable
+### Six eval sets: five for development, one held back
 
 | File (`data/eval/`) | n | Schema | Changes vs. the in-template set |
 |---|:--:|---|---|
@@ -84,8 +92,16 @@ different rows.
 | `text2sql_eval_bookstore.jsonl` | 20 | bookstore | **schema only** - same intents, all-new names |
 | `text2sql_eval_join.jsonl` | 12 | employees | **construct** - joins on a TEXT key + a self-join |
 | `text2sql_eval_join_bookstore.jsonl` | 11 | bookstore | join key becomes an **integer FK** |
+| `text2sql_eval_blind.jsonl` | 24 | employees | **held back** - fresh intents, incl. untaught constructs |
 
 Holding everything else fixed is what makes a score drop *diagnostic* rather than merely bad.
+
+The first five are **development sets**: each one's failures were read and acted upon, which
+is precisely how the training data improved. That also means they can no longer be called
+unbiased. The sixth is **held back** - written after the shipped model was frozen, scored
+once, excluded from `make eval-all`, and never used to steer a curation decision. `make
+eval-blind` runs it deliberately, and `tests/test_eval_blind.py` fails if anyone quietly adds
+it to the regression loop.
 
 ### The leakage contract
 
@@ -112,7 +128,8 @@ Per-set numbers for the base model and the current adapter, both metrics:
 | cross-schema (bookstore) | 20 | 55% (11) | 70% (14) | **100% (20)** | **100% (20)** |
 | JOIN (employees, text key) | 12 | 0% (0) | 8% (1) | **100% (12)** | **100% (12)** |
 | JOIN (bookstore, integer FK) | 11 | 0% (0) | 64% (7) | **91% (10)** | **100% (11)** |
-| **total** | **83** | **30% (25)** | **55% (46)** | **95% (79)** | **98% (81)** |
+| **development total** | **83** | **30% (25)** | **55% (46)** | **95% (79)** | **98% (81)** |
+| **held-back (blind)** | **24** | **21% (5)** | **29% (7)** | **71% (17)** | **75% (18)** |
 
 The adapter adds **4.4M** trainable parameters (0.88%) on top of the frozen 0.49B base and
 trains in ~17 minutes on a laptop GPU. How it got there is below - the intermediate tables
@@ -280,24 +297,82 @@ lexically adjacent projection pattern ("show the department of each employee" �
 `SELECT department FROM employees`) wins the tie. Closing it means separating two very
 similar sentences, not teaching a new construct.
 
+### The blind result: what it scores when nobody is steering
+
+By this point all five sets above had fed a curation decision, so none of them could still
+be called unbiased. `data/eval/text2sql_eval_blind.jsonl` is the correction: **24 fresh
+intents**, written after the shipped adapter was trained and frozen, without consulting a
+single model prediction. It covers the same taxonomy a user would exercise, plus constructs
+that appear in **no** training template - `BETWEEN`, `LIKE`, `IS NULL`, `!=`,
+`SELECT DISTINCT`, subqueries and arithmetic between aggregates.
+
+Two properties make the number trustworthy. First, every question and gold was checked
+against the generator's *full candidate pool*, not just the written split - so adding the
+file changed **zero** training examples, and the score therefore describes exactly the
+adapter that was already shipped, with no retraining and no moving target. Second, it was
+scored **once**:
+
+| | n | exact-match | exec-accuracy |
+|---|:--:|:--:|:--:|
+| `Qwen2.5-0.5B-Instruct` (base) | 24 | 21% (5/24) | 29% (7/24) |
+| `+ LoRA fine-tune` | 24 | **71% (17/24)** | **75% (18/24)** |
+
+**75%, against 98% on the development sets.** That 23-point gap is the price of having used
+those sets to make decisions, and it is the most honest number in this repo. The fine-tune is
+still a large, real win - it **more than doubles** the base model (29% → 75%) on questions
+nobody tuned anything toward, which is the claim the project actually wants to support.
+
+The six misses are worth reading, because five of them fall outside the syllabus:
+
+| # | Question | What it produced |
+|---|---|---|
+| 3 | "hired in 2021" | `WHERE YEAR(hire_date) = 2021` - a function SQLite does not have |
+| 6 | "the distinct locations" | dropped `DISTINCT` |
+| 7 | "employees with no manager" | a self-join instead of `IS NULL` |
+| 9 | "department names ordered by budget" | `SELECT department FROM departments` + a stray `LIMIT 1` |
+| 22 | "employees who manage someone" | `GROUP BY ... HAVING COUNT(*) > 1` instead of `DISTINCT` |
+| 21 | "name next to budget and location" | right rows, **columns in a different order** |
+
+Four of the five real failures (#3, #6, #7, #22) need a construct no training template
+contains, which is a coherent and unsurprising story: the model generalises well *within* the
+taxonomy it was taught - new phrasings, new schemas, new join keys - and degrades at its
+edges. #9 is the one genuine in-taxonomy regression, and it is the same `department`
+vs. `departments.name` ambiguity described above. #21 is arguably not a model error at all:
+the rows are correct and only the column order differs, which is a limitation of execution
+accuracy rather than of the model.
+
+**These failures are deliberately not being fixed.** Reading them as a to-do list is exactly
+what would convert this into a sixth development set and leave the project with no unbiased
+estimate at all. They are recorded here as findings; the next honest measurement needs a
+*new* blind set, not a patched model.
+
 ---
 
 ## Honest caveats
 
 - **The wins are leakage-free.** No eval question or gold SQL appears in training, enforced in
   `src/build_dataset.py` and asserted in the test suite.
-- **But the eval sets are now development signal, not a blind measurement.** Four
-  data-curation decisions (the balancing cap, the ambiguity fix, the literal-shape balance and
-  the starved-pattern fix) were all diagnosed by reading eval failures. Nothing was tuned *to
-  the answers* - the leakage filter guarantees that - but a genuinely blind estimate would
-  need a fresh, unseen set. That is the top item on the roadmap.
+- **The 98% is development signal; the 75% is the estimate.** Four data-curation decisions
+  (the balancing cap, the ambiguity fix, the literal-shape balance and the starved-pattern
+  fix) were diagnosed by reading failures on the five development sets, so those sets can no
+  longer be called unbiased. Nothing was ever tuned *to the answers* - the leakage filter
+  guarantees that - but the honest headline is the held-back number:
+  [**29% → 75%**](#the-blind-result-what-it-scores-when-nobody-is-steering).
+- **The blind set is single-use, and it has now been used.** It was scored once against the
+  shipped adapter. Its failures are reported but deliberately not fixed; the moment they are,
+  it stops being blind. Any *further* claim of an unbiased estimate requires a **new** set,
+  which is why that sits at the top of the roadmap rather than being crossed off.
 - **The latest round trades a point.** In-template went 100% → 95% while the reworded set
   gained 5 and the cross-schema join set gained 91. That trade is the honest shape of the
-  result, not a rounding error, and it is exactly why every retrain is scored on all five sets
-  rather than on the one it was aimed at.
+  result, not a rounding error, and it is exactly why every retrain is scored on all five
+  development sets rather than on the one it was aimed at.
 - **The in-template set remains in-distribution** with the synthetic training patterns (same
-  SQL shapes, unseen literal values). The other four sets exist because that number alone
-  would overstate the model.
+  SQL shapes, unseen literal values). The other sets exist because that number alone would
+  overstate the model.
+- **Everything here is one small model on two small schemas.** 20-24 questions per set means
+  a single example is worth 4-5 points, so small differences are noise. The point of the repo
+  is the *method* - measure first, isolate one variable per set, and keep one set honest -
+  not the absolute scores.
 
 ---
 
@@ -312,12 +387,17 @@ make smoke       # fast end-to-end pipeline check on a tiny model (no big downlo
 make baseline    # reproduce the 40% baseline (downloads Qwen2.5-0.5B-Instruct once)
 make data        # (re)generate the de-leaked NL->SQL training set into data/train/
 make train       # LoRA fine-tune on data/train/ -> adapters/ (uses MPS / CPU / CUDA)
-make eval-all    # score the adapter on all five eval sets (regression check)
+make eval-all    # score the adapter on the five development sets (regression check)
 make test        # fast unit tests, no model download
 ```
 
 Individual eval targets: `eval-ft` (in-template), `eval-ood` (reworded), `eval-schema`
 (bookstore, base + adapter), `eval-join` (both JOIN sets).
+
+There is also `make eval-blind`, which scores the **held-back** set. It is intentionally not
+part of `eval-all`: it is meant to be run once against a finished model, after which its
+number should be recorded and its failures left alone. Running it repeatedly while iterating
+on the training data is exactly how a blind set quietly stops being blind.
 
 `make data && make train` reproduces the adapter reported above, into
 `adapters/lora-qwen2.5-0.5b-join`, which every eval target reads by default. On a
@@ -371,7 +451,7 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
 │   ├── db.py              # seeded SQLite DBs + execution-accuracy scoring
 │   └── metrics.py         # SQL normalisation + exact-match scoring
 ├── data/
-│   ├── eval/              # the five held-out sets + a data card (README.md)
+│   ├── eval/              # 5 development sets + 1 held-back blind set, and a data card
 │   └── train/             # generated train/val split + a data card (README.md)
 ├── tests/                 # stdlib-only unit tests (no torch), run in CI
 ├── results/
@@ -399,9 +479,14 @@ python -m src.eval_baseline --model HuggingFaceTB/SmolLM2-360M-Instruct --limit 
   nowhere in training.
 - ✅ **Teach the magnitude words**: "total headcount" now returns `COUNT(*)`, taught by a
   contrastive `SUM` pattern rather than by memorising the wording.
-- ⬜ Get a genuinely **blind** estimate on a fresh, unseen set - every current set has now fed
-  a curation decision.
-- ⬜ Close the last failure (`GROUP BY department` losing to a lexically adjacent projection).
+- ✅ Get a genuinely **blind** estimate: a held-back set of 24 fresh intents, written after
+  the model was frozen and scored once - **29% → 75%**, against 98% on the development sets.
+- ⬜ Retire and replace the blind set. It has been spent, so the next unbiased measurement
+  needs a fresh one, ideally written by someone other than the person curating the data.
+- ⬜ Teach the constructs the blind set found missing (`IS NULL`, `SELECT DISTINCT`, date
+  functions, `LIKE`) - **only** alongside a new blind set, never to chase the old one.
+- ⬜ Close the last in-taxonomy failure (`GROUP BY department` losing to a lexically adjacent
+  projection).
 - ⬜ Optional: quantize the model and serve it behind a small API.
 
 ---

@@ -1,0 +1,24 @@
+{"id": 1, "question": "Show the names and salaries of everyone in the Engineering department.", "sql": "SELECT name, salary FROM employees WHERE department = 'Engineering'"}
+{"id": 2, "question": "Which employees earn between 70000 and 100000? List their names.", "sql": "SELECT name FROM employees WHERE salary BETWEEN 70000 AND 100000"}
+{"id": 3, "question": "How many employees were hired in 2021?", "sql": "SELECT COUNT(*) FROM employees WHERE hire_date LIKE '2021%'"}
+{"id": 4, "question": "List the names of employees who were hired before 2019 and earn more than 100000.", "sql": "SELECT name FROM employees WHERE hire_date < '2019-01-01' AND salary > 100000"}
+{"id": 5, "question": "Which departments are located outside New York? Give their names.", "sql": "SELECT name FROM departments WHERE location != 'New York'"}
+{"id": 6, "question": "List the distinct locations our departments are in.", "sql": "SELECT DISTINCT location FROM departments"}
+{"id": 7, "question": "How many employees do not have a manager?", "sql": "SELECT COUNT(*) FROM employees WHERE manager_id IS NULL"}
+{"id": 8, "question": "What is the earliest hire date in the company?", "sql": "SELECT MIN(hire_date) FROM employees"}
+{"id": 9, "question": "Show the department names ordered by budget, largest first.", "sql": "SELECT name FROM departments ORDER BY budget DESC"}
+{"id": 10, "question": "Who are the three most recently hired employees? Names only.", "sql": "SELECT name FROM employees ORDER BY hire_date DESC LIMIT 3"}
+{"id": 11, "question": "Which employee earns the most in the Marketing department? Give the name.", "sql": "SELECT name FROM employees WHERE department = 'Marketing' ORDER BY salary DESC LIMIT 1"}
+{"id": 12, "question": "List the names of employees who joined after 2022-06-01, sorted by hire date.", "sql": "SELECT name FROM employees WHERE hire_date > '2022-06-01' ORDER BY hire_date"}
+{"id": 13, "question": "Which departments have an average salary above 100000?", "sql": "SELECT department FROM employees GROUP BY department HAVING AVG(salary) > 100000"}
+{"id": 14, "question": "Which locations have more than one department?", "sql": "SELECT location FROM departments GROUP BY location HAVING COUNT(*) > 1"}
+{"id": 15, "question": "For each department, show the name of the department and its lowest salary.", "sql": "SELECT department, MIN(salary) FROM employees GROUP BY department"}
+{"id": 16, "question": "What is the gap between the highest and lowest salary in the company?", "sql": "SELECT MAX(salary) - MIN(salary) FROM employees"}
+{"id": 17, "question": "Which employees earn less than the company average? List their names.", "sql": "SELECT name FROM employees WHERE salary < (SELECT AVG(salary) FROM employees)"}
+{"id": 18, "question": "How many departments have a budget below the average department budget?", "sql": "SELECT COUNT(*) FROM departments WHERE budget < (SELECT AVG(budget) FROM departments)"}
+{"id": 19, "question": "How many employees work for departments with a budget over 500000?", "sql": "SELECT COUNT(*) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.budget > 500000"}
+{"id": 20, "question": "What is the average salary of employees in departments based in Berlin?", "sql": "SELECT AVG(employees.salary) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'Berlin'"}
+{"id": 21, "question": "List each employee's name next to the budget and location of their department.", "sql": "SELECT employees.name, departments.budget, departments.location FROM employees JOIN departments ON employees.department = departments.name"}
+{"id": 22, "question": "Which employees manage at least one other person? Give their names.", "sql": "SELECT DISTINCT m.name FROM employees e JOIN employees m ON e.manager_id = m.id"}
+{"id": 23, "question": "List the names of Engineering employees together with the name of their manager.", "sql": "SELECT e.name, m.name FROM employees e JOIN employees m ON e.manager_id = m.id WHERE e.department = 'Engineering'"}
+{"id": 24, "question": "What is the highest budget among departments outside New York?", "sql": "SELECT MAX(budget) FROM departments WHERE location != 'New York'"}

@@ -54,11 +54,11 @@ table and an `employees` table. Every question is written against it.
   keywords, single-quoted string literals, no trailing semicolon).
 - **No leakage (enforced).** A candidate is dropped if its normalised question
   **or** normalised SQL collides with any eval example. The blocklist is built from
-  **every** file in `data/eval` (in-template, paraphrase, cross-schema and both join
-  sets), not just the in-template one, because adding paraphrased training questions
-  would otherwise risk colliding with the very set used to measure paraphrase
-  robustness. The SQL check reuses `src.metrics.normalize_sql` - the exact function
-  used for scoring - so no training target can ever equal a graded eval answer.
+  **every** file in `data/eval` (in-template, paraphrase, cross-schema, both join sets and
+  the held-back blind set), not just the in-template one, because adding paraphrased
+  training questions would otherwise risk colliding with the very set used to measure
+  paraphrase robustness. The SQL check reuses `src.metrics.normalize_sql` - the exact
+  function used for scoring - so no training target can ever equal a graded eval answer.
   Duplicate questions are also removed.
 - **Closeness is measured, not assumed.** The build report prints the highest
   word-overlap between any training question and any eval question. The closest
