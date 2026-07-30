@@ -5,9 +5,15 @@ PIP  := $(VENV)/bin/pip
 
 # Override to evaluate a different adapter, e.g.
 #   make eval-all ADAPTER=adapters/lora-qwen2.5-0.5b-aug
-ADAPTER ?= adapters/lora-qwen2.5-0.5b
+# `make train` writes here too, so train + eval stay in sync by default.
+ADAPTER ?= adapters/lora-qwen2.5-0.5b-join
 
-.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-all test lint clean
+# Extra flags for `make train`. On a memory-constrained machine, a smaller micro
+# batch with matching accumulation keeps the effective batch (8) identical:
+#   make train TRAIN_ARGS="--batch-size 4 --grad-accum 2"
+TRAIN_ARGS ?=
+
+.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all test lint clean
 
 help:
 	@echo "make setup     - create venv and install local (CPU/MPS) requirements"
@@ -18,7 +24,8 @@ help:
 	@echo "make eval-ft   - evaluate the fine-tuned adapter on the eval set"
 	@echo "make eval-ood  - evaluate the adapter on the out-of-template (reworded) eval set"
 	@echo "make eval-schema - evaluate base + adapter on the second (bookstore) schema"
-	@echo "make eval-all  - evaluate the adapter on all three eval sets (regression check)"
+	@echo "make eval-join - evaluate base + adapter on the multi-table JOIN eval sets"
+	@echo "make eval-all  - evaluate the adapter on all five eval sets (regression check)"
 	@echo "make test      - run the fast unit tests (no model download)"
 	@echo "make lint      - run ruff (real-error rules) over the repo"
 	@echo "make freeze    - pin installed versions into requirements.txt"
@@ -52,7 +59,7 @@ data:
 	$(PY) -m src.build_dataset
 
 train:
-	$(PY) -m src.train_lora
+	$(PY) -m src.train_lora --output-dir $(ADAPTER) $(TRAIN_ARGS)
 
 eval-ft:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER)
@@ -67,14 +74,27 @@ eval-schema:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore
 
-# Run the adapter over every eval set: in-template, reworded, and unseen schema.
-# Use this after retraining to check a gain on one set is not a loss on another.
+# The multi-table JOIN sets: the employees schema joins on a TEXT key, the
+# bookstore mirror joins on an INTEGER foreign key the training data never shows.
+eval-join:
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_join.jsonl
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
+
+# Run the adapter over every eval set: in-template, reworded, unseen schema, and
+# the two JOIN sets. Use this after retraining to check a gain on one set is not
+# a loss on another.
 eval-all:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_paraphrase.jsonl
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_join.jsonl
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
 
 clean:
 	rm -rf $(VENV) src/__pycache__ **/__pycache__
