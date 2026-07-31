@@ -47,3 +47,16 @@
 | 2026-07-31T12:30:31+00:00 | `Qwen/Qwen2.5-0.5B-Instruct` | text2sql_eval_blind_v2 | mps | 30 | 10.0% | 10.0% |
 | 2026-07-31T12:30:58+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval_blind_v2 | mps | 30 | 30.0% | 36.7% |
 | 2026-07-31T12:33:02+00:00 | `Qwen/Qwen2.5-1.5B-Instruct` | text2sql_eval_blind_v2 | mps | 30 | 23.3% | 43.3% |
+| 2026-07-31T13:21:43+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joingroup` | text2sql_eval | mps | 20 | 100.0% | 100.0% |
+| 2026-07-31T13:21:54+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joingroup` | text2sql_eval_paraphrase | mps | 20 | 100.0% | 100.0% |
+| 2026-07-31T13:22:04+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joingroup` | text2sql_eval_bookstore | mps | 20 | 95.0% | 100.0% |
+| 2026-07-31T13:22:15+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joingroup` | text2sql_eval_join | mps | 12 | 100.0% | 100.0% |
+| 2026-07-31T13:22:27+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joingroup` | text2sql_eval_join_bookstore | mps | 11 | 90.9% | 90.9% |
+| 2026-07-31T13:22:43+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joingroup` | text2sql_eval_blind_v1_retired | mps | 24 | 75.0% | 87.5% |
+| 2026-07-31T13:45:04+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joinorder` | text2sql_eval | mps | 20 | 100.0% | 100.0% |
+| 2026-07-31T13:45:15+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joinorder` | text2sql_eval_paraphrase | mps | 20 | 100.0% | 100.0% |
+| 2026-07-31T13:45:27+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joinorder` | text2sql_eval_bookstore | mps | 20 | 95.0% | 95.0% |
+| 2026-07-31T13:45:40+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joinorder` | text2sql_eval_join | mps | 12 | 100.0% | 100.0% |
+| 2026-07-31T13:45:52+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joinorder` | text2sql_eval_join_bookstore | mps | 11 | 18.2% | 18.2% |
+| 2026-07-31T13:46:09+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joinorder` | text2sql_eval_blind_v1_retired | mps | 24 | 70.8% | 87.5% |
+| 2026-07-31T13:49:25+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-joingroup` | text2sql_eval_blind_v2 | mps | 30 | 30.0% | 40.0% |

@@ -6,7 +6,7 @@ PIP  := $(VENV)/bin/pip
 # Override to evaluate a different adapter, e.g.
 #   make eval-all ADAPTER=adapters/lora-qwen2.5-0.5b-aug
 # `make train` writes here too, so train + eval stay in sync by default.
-ADAPTER ?= adapters/lora-qwen2.5-0.5b-constructs
+ADAPTER ?= adapters/lora-qwen2.5-0.5b-joingroup
 
 # Extra flags for `make train`. On a memory-constrained machine, a smaller micro
 # batch with matching accumulation keeps the effective batch (8) identical:

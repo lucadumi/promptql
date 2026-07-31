@@ -80,6 +80,7 @@ import json
 import math
 import os
 import random
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -602,6 +603,24 @@ P_JOIN_GROUP_AGG = [
     "For each department location, show the location and the {phrase} of the employees working there.",
     "Group employees by their department's location and report the {phrase}.",
     "Per department location, what is the {phrase}?",
+    "Break the employees down by their department's location and give the {phrase}.",
+    "For every location a department sits in, show it alongside the {phrase}.",
+]
+# Filtered counterparts of the two targets above. They exist because the *unfiltered*
+# COUNT and AVG per location are both eval golds, so the leakage filter deletes them
+# and takes most of this family with them (see the note in generate_candidates).
+# A WHERE clause makes the target unreachable by the filter while leaving the lesson
+# -- group by a column that lives in the other table, and project an aggregate beside
+# it -- completely unchanged.
+P_JOIN_GROUP_COUNT_FILTERED = [
+    "For each department location, how many employees there earn more than {n}?",
+    "Show each department location and the number of its employees paid above {n}.",
+    "Group the employees earning over {n} by their department's location and count them.",
+]
+P_JOIN_GROUP_AGG_FILTERED = [
+    "For each department location, show the location and the average salary of the employees there earning over {n}.",
+    "Among staff paid above {n}, group them by their department's location and report the average salary.",
+    "Per department location, what is the average salary of those earning more than {n}?",
 ]
 P_JOIN_GROUP_COUNT = [
     "For each department location, show the location and how many employees work there.",
@@ -914,6 +933,21 @@ def generate_candidates() -> List[Example]:
                 f"WHERE departments.location = '{loc}'", word=word, loc=loc)
 
     # -- GROUP BY a column of the joined table (impossible without the join) --
+    #
+    # This family is structurally prone to starvation, and it starved silently. Its
+    # two most representative targets -- COUNT(*) and AVG(salary) per location --
+    # are *both* eval golds, so the leakage filter deletes them and leaves only SUM
+    # and MAX. Bundled with the six HAVING targets under a single 24-example cap,
+    # what reached the model was 6 examples of "SELECT <joined column>, <aggregate>
+    # ... GROUP BY <joined column>" against 42 single-table ones. On the schema it
+    # trained on that was still enough; on an unseen integer-FK schema the model
+    # fell back to the dominant single-table shape, dropping the join or inverting
+    # the key. The category as a whole looked healthy at 24, which is exactly why it
+    # went unnoticed -- balance has to be checked per *shape*, not per category.
+    #
+    # Two changes: HAVING moves to its own category so it stops consuming this
+    # budget, and filtered variants replace the deleted golds with targets the
+    # leakage filter cannot reach.
     add("join_group", P_JOIN_GROUP_COUNT,
         f"SELECT departments.location, COUNT(*) {JOIN_DEPT} GROUP BY departments.location")
     for agg, phrase in [("AVG", "average salary"),
@@ -922,11 +956,18 @@ def generate_candidates() -> List[Example]:
         add("join_group", P_JOIN_GROUP_AGG,
             f"SELECT departments.location, {agg}(employees.salary) {JOIN_DEPT} "
             f"GROUP BY departments.location", phrase=phrase)
+    for n in SALARY_THRESHOLDS[:4]:
+        add("join_group", P_JOIN_GROUP_COUNT_FILTERED,
+            f"SELECT departments.location, COUNT(*) {JOIN_DEPT} "
+            f"WHERE employees.salary > {n} GROUP BY departments.location", n=n)
+        add("join_group", P_JOIN_GROUP_AGG_FILTERED,
+            f"SELECT departments.location, AVG(employees.salary) {JOIN_DEPT} "
+            f"WHERE employees.salary > {n} GROUP BY departments.location", n=n)
     for n in HAVING_N[2:]:
-        add("join_group", P_JOIN_HAVING_GT,
+        add("join_having", P_JOIN_HAVING_GT,
             f"SELECT departments.location {JOIN_DEPT} GROUP BY departments.location "
             f"HAVING COUNT(*) > {n}", n=n)
-        add("join_group", P_JOIN_HAVING_LT,
+        add("join_having", P_JOIN_HAVING_LT,
             f"SELECT departments.location {JOIN_DEPT} GROUP BY departments.location "
             f"HAVING COUNT(*) < {n}", n=n)
 
@@ -958,6 +999,42 @@ def generate_candidates() -> List[Example]:
 def normalize_question(q: str) -> str:
     """Lightweight question canonicaliser for dedup + leakage checks."""
     return " ".join(q.lower().split()).rstrip("?.").strip()
+
+
+# `FROM a JOIN b ON a.x = b.y`, with optional table aliases on either side.
+_JOIN_RE = re.compile(
+    r"\bFROM\s+(?P<lt>\w+)(?:\s+(?!JOIN\b)(?P<la>\w+))?"
+    r"\s+JOIN\s+(?P<rt>\w+)(?:\s+(?!ON\b)(?P<ra>\w+))?"
+    r"\s+ON\s+(?P<c1>\w+\.\w+)\s*=\s*(?P<c2>\w+\.\w+)",
+    re.IGNORECASE,
+)
+
+
+def swap_join_order(sql: str) -> str:
+    """Rewrite ``FROM a JOIN b ON a.x = b.y`` as ``FROM b JOIN a ON b.y = a.x``.
+
+    The same query, spelled the other way round. ``normalize_sql`` compares
+    strings, so it does **not** consider the two equal -- which means a reversed
+    spelling of an eval gold would sail through the leakage filter as a brand new
+    target and quietly teach the model a graded answer.
+
+    That gap is not currently exercised -- every join this generator emits names
+    `employees` first -- but it is one edit away from mattering. Teaching the
+    reverse order was tried explicitly and made things much worse (the model needs
+    a *consistent* convention more than it needs to know both spellings; see the
+    README), so the forward order is deliberate rather than accidental, and this
+    guard keeps the leakage contract honest if anyone revisits that decision.
+    This function only widens the de-leak blocklist; it never generates a training
+    example. Returns ``sql`` unchanged if it contains no join.
+    """
+    match = _JOIN_RE.search(sql)
+    if not match:
+        return sql
+    g = match.groupdict()
+    left = f"{g['lt']} {g['la']}" if g["la"] else g["lt"]
+    right = f"{g['rt']} {g['ra']}" if g["ra"] else g["rt"]
+    swapped = f"FROM {right} JOIN {left} ON {g['c2']} = {g['c1']}"
+    return sql[:match.start()] + swapped + sql[match.end():]
 
 
 def question_words(q: str) -> frozenset:
@@ -1038,7 +1115,15 @@ def build(eval_files: List[Path], val_frac: float, seed: int,
     for path in eval_files:
         eval_rows.extend(load_jsonl(path))
     eval_questions = {normalize_question(r["question"]) for r in eval_rows}
-    eval_sqls = {normalize_sql(r["sql"]) for r in eval_rows}
+    # Block both spellings of every join gold. `normalize_sql` compares strings, so
+    # `FROM a JOIN b ON a.x = b.y` and `FROM b JOIN a ON b.y = a.x` look like two
+    # different targets to it even though they are the same query. Nothing here
+    # emits the reversed order today, but the guard costs nothing and closes a hole
+    # that would open the moment someone taught it.
+    eval_sqls = set()
+    for r in eval_rows:
+        eval_sqls.add(normalize_sql(r["sql"]))
+        eval_sqls.add(normalize_sql(swap_join_order(r["sql"])))
     eval_word_sets = [(question_words(r["question"]), r["question"]) for r in eval_rows]
 
     candidates = generate_candidates()

@@ -1,0 +1,283 @@
+{
+  "summary": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "adapter": "adapters/lora-qwen2.5-0.5b-joingroup",
+    "schema": "employees",
+    "device": "mps",
+    "quantized": false,
+    "eval_file": "data/eval/text2sql_eval_blind_v1_retired.jsonl",
+    "n_examples": 24,
+    "exact_match": 0.75,
+    "execution_accuracy": 0.875,
+    "correct": 18,
+    "exec_correct": 21,
+    "seconds": 12.6,
+    "timestamp_utc": "2026-07-31T13:22:43+00:00"
+  },
+  "records": [
+    {
+      "id": 1,
+      "question": "Show the names and salaries of everyone in the Engineering department.",
+      "gold": "SELECT name, salary FROM employees WHERE department = 'Engineering'",
+      "prediction_raw": "SELECT name, salary FROM employees WHERE department = 'Engineering'",
+      "prediction_norm": "select name, salary from employees where department = 'engineering'",
+      "gold_norm": "select name, salary from employees where department = 'engineering'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 2,
+      "question": "Which employees earn between 70000 and 100000? List their names.",
+      "gold": "SELECT name FROM employees WHERE salary BETWEEN 70000 AND 100000",
+      "prediction_raw": "SELECT name FROM employees WHERE salary BETWEEN 70000 AND 100000",
+      "prediction_norm": "select name from employees where salary between 70000 and 100000",
+      "gold_norm": "select name from employees where salary between 70000 and 100000",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 3,
+      "question": "How many employees were hired in 2021?",
+      "gold": "SELECT COUNT(*) FROM employees WHERE hire_date LIKE '2021%'",
+      "prediction_raw": "SELECT COUNT(*) FROM employees WHERE strftime('%Y', hire_date) = '2021'",
+      "prediction_norm": "select count(*) from employees where strftime('%y', hire_date) = '2021'",
+      "gold_norm": "select count(*) from employees where hire_date like '2021%'",
+      "correct": false,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 4,
+      "question": "List the names of employees who were hired before 2019 and earn more than 100000.",
+      "gold": "SELECT name FROM employees WHERE hire_date < '2019-01-01' AND salary > 100000",
+      "prediction_raw": "SELECT name FROM employees WHERE hire_date < '2019' AND salary > 100000",
+      "prediction_norm": "select name from employees where hire_date < '2019' and salary > 100000",
+      "gold_norm": "select name from employees where hire_date < '2019-01-01' and salary > 100000",
+      "correct": false,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 5,
+      "question": "Which departments are located outside New York? Give their names.",
+      "gold": "SELECT name FROM departments WHERE location != 'New York'",
+      "prediction_raw": "SELECT name FROM departments WHERE location != 'New York'",
+      "prediction_norm": "select name from departments where location != 'new york'",
+      "gold_norm": "select name from departments where location != 'new york'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 6,
+      "question": "List the distinct locations our departments are in.",
+      "gold": "SELECT DISTINCT location FROM departments",
+      "prediction_raw": "SELECT DISTINCT location FROM departments",
+      "prediction_norm": "select distinct location from departments",
+      "gold_norm": "select distinct location from departments",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 7,
+      "question": "How many employees do not have a manager?",
+      "gold": "SELECT COUNT(*) FROM employees WHERE manager_id IS NULL",
+      "prediction_raw": "SELECT COUNT(*) FROM employees WHERE manager_id IS NULL",
+      "prediction_norm": "select count(*) from employees where manager_id is null",
+      "gold_norm": "select count(*) from employees where manager_id is null",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 8,
+      "question": "What is the earliest hire date in the company?",
+      "gold": "SELECT MIN(hire_date) FROM employees",
+      "prediction_raw": "SELECT MIN(hire_date) FROM employees",
+      "prediction_norm": "select min(hire_date) from employees",
+      "gold_norm": "select min(hire_date) from employees",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 9,
+      "question": "Show the department names ordered by budget, largest first.",
+      "gold": "SELECT name FROM departments ORDER BY budget DESC",
+      "prediction_raw": "SELECT department FROM departments ORDER BY budget DESC LIMIT 1",
+      "prediction_norm": "select department from departments order by budget desc limit 1",
+      "gold_norm": "select name from departments order by budget desc",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: department"
+    },
+    {
+      "id": 10,
+      "question": "Who are the three most recently hired employees? Names only.",
+      "gold": "SELECT name FROM employees ORDER BY hire_date DESC LIMIT 3",
+      "prediction_raw": "SELECT name FROM employees ORDER BY hire_date DESC LIMIT 3",
+      "prediction_norm": "select name from employees order by hire_date desc limit 3",
+      "gold_norm": "select name from employees order by hire_date desc limit 3",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 11,
+      "question": "Which employee earns the most in the Marketing department? Give the name.",
+      "gold": "SELECT name FROM employees WHERE department = 'Marketing' ORDER BY salary DESC LIMIT 1",
+      "prediction_raw": "SELECT name FROM employees WHERE department = 'Marketing' ORDER BY salary DESC LIMIT 1",
+      "prediction_norm": "select name from employees where department = 'marketing' order by salary desc limit 1",
+      "gold_norm": "select name from employees where department = 'marketing' order by salary desc limit 1",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 12,
+      "question": "List the names of employees who joined after 2022-06-01, sorted by hire date.",
+      "gold": "SELECT name FROM employees WHERE hire_date > '2022-06-01' ORDER BY hire_date",
+      "prediction_raw": "SELECT name FROM employees WHERE hire_date > '2022-06-01' ORDER BY hire_date",
+      "prediction_norm": "select name from employees where hire_date > '2022-06-01' order by hire_date",
+      "gold_norm": "select name from employees where hire_date > '2022-06-01' order by hire_date",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 13,
+      "question": "Which departments have an average salary above 100000?",
+      "gold": "SELECT department FROM employees GROUP BY department HAVING AVG(salary) > 100000",
+      "prediction_raw": "SELECT department FROM employees GROUP BY department HAVING AVG(salary) > 100000",
+      "prediction_norm": "select department from employees group by department having avg(salary) > 100000",
+      "gold_norm": "select department from employees group by department having avg(salary) > 100000",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 14,
+      "question": "Which locations have more than one department?",
+      "gold": "SELECT location FROM departments GROUP BY location HAVING COUNT(*) > 1",
+      "prediction_raw": "SELECT DISTINCT location FROM departments GROUP BY location HAVING COUNT(*) > 1",
+      "prediction_norm": "select distinct location from departments group by location having count(*) > 1",
+      "gold_norm": "select location from departments group by location having count(*) > 1",
+      "correct": false,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 15,
+      "question": "For each department, show the name of the department and its lowest salary.",
+      "gold": "SELECT department, MIN(salary) FROM employees GROUP BY department",
+      "prediction_raw": "SELECT department, MIN(salary) FROM employees GROUP BY department",
+      "prediction_norm": "select department, min(salary) from employees group by department",
+      "gold_norm": "select department, min(salary) from employees group by department",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 16,
+      "question": "What is the gap between the highest and lowest salary in the company?",
+      "gold": "SELECT MAX(salary) - MIN(salary) FROM employees",
+      "prediction_raw": "SELECT MAX(salary) - MIN(salary) FROM employees",
+      "prediction_norm": "select max(salary) - min(salary) from employees",
+      "gold_norm": "select max(salary) - min(salary) from employees",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 17,
+      "question": "Which employees earn less than the company average? List their names.",
+      "gold": "SELECT name FROM employees WHERE salary < (SELECT AVG(salary) FROM employees)",
+      "prediction_raw": "SELECT name FROM employees WHERE salary < (SELECT AVG(salary) FROM employees)",
+      "prediction_norm": "select name from employees where salary < (select avg(salary) from employees)",
+      "gold_norm": "select name from employees where salary < (select avg(salary) from employees)",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 18,
+      "question": "How many departments have a budget below the average department budget?",
+      "gold": "SELECT COUNT(*) FROM departments WHERE budget < (SELECT AVG(budget) FROM departments)",
+      "prediction_raw": "SELECT COUNT(*) FROM departments WHERE budget < (SELECT AVG(budget) FROM departments)",
+      "prediction_norm": "select count(*) from departments where budget < (select avg(budget) from departments)",
+      "gold_norm": "select count(*) from departments where budget < (select avg(budget) from departments)",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 19,
+      "question": "How many employees work for departments with a budget over 500000?",
+      "gold": "SELECT COUNT(*) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.budget > 500000",
+      "prediction_raw": "SELECT COUNT(*) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.budget > 500000",
+      "prediction_norm": "select count(*) from employees join departments on employees.department = departments.name where departments.budget > 500000",
+      "gold_norm": "select count(*) from employees join departments on employees.department = departments.name where departments.budget > 500000",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 20,
+      "question": "What is the average salary of employees in departments based in Berlin?",
+      "gold": "SELECT AVG(employees.salary) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'Berlin'",
+      "prediction_raw": "SELECT AVG(employees.salary) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'Berlin'",
+      "prediction_norm": "select avg(employees.salary) from employees join departments on employees.department = departments.name where departments.location = 'berlin'",
+      "gold_norm": "select avg(employees.salary) from employees join departments on employees.department = departments.name where departments.location = 'berlin'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 21,
+      "question": "List each employee's name next to the budget and location of their department.",
+      "gold": "SELECT employees.name, departments.budget, departments.location FROM employees JOIN departments ON employees.department = departments.name",
+      "prediction_raw": "SELECT employees.name, departments.location, departments.budget FROM employees JOIN departments ON employees.department = departments.name",
+      "prediction_norm": "select employees.name, departments.location, departments.budget from employees join departments on employees.department = departments.name",
+      "gold_norm": "select employees.name, departments.budget, departments.location from employees join departments on employees.department = departments.name",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": null
+    },
+    {
+      "id": 22,
+      "question": "Which employees manage at least one other person? Give their names.",
+      "gold": "SELECT DISTINCT m.name FROM employees e JOIN employees m ON e.manager_id = m.id",
+      "prediction_raw": "SELECT name FROM employees GROUP BY name HAVING COUNT(*) > 1",
+      "prediction_norm": "select name from employees group by name having count(*) > 1",
+      "gold_norm": "select distinct m.name from employees e join employees m on e.manager_id = m.id",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": null
+    },
+    {
+      "id": 23,
+      "question": "List the names of Engineering employees together with the name of their manager.",
+      "gold": "SELECT e.name, m.name FROM employees e JOIN employees m ON e.manager_id = m.id WHERE e.department = 'Engineering'",
+      "prediction_raw": "SELECT e.name, m.name FROM employees e JOIN employees m ON e.manager_id = m.id WHERE e.department = 'Engineering'",
+      "prediction_norm": "select e.name, m.name from employees e join employees m on e.manager_id = m.id where e.department = 'engineering'",
+      "gold_norm": "select e.name, m.name from employees e join employees m on e.manager_id = m.id where e.department = 'engineering'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 24,
+      "question": "What is the highest budget among departments outside New York?",
+      "gold": "SELECT MAX(budget) FROM departments WHERE location != 'New York'",
+      "prediction_raw": "SELECT MAX(budget) FROM departments WHERE location != 'New York'",
+      "prediction_norm": "select max(budget) from departments where location != 'new york'",
+      "gold_norm": "select max(budget) from departments where location != 'new york'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    }
+  ]
+}
