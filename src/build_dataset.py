@@ -145,6 +145,25 @@ HAVING_N = [3, 5, 15, 20, 25]
 
 AGGS = {"AVG": "average", "MAX": "highest", "MIN": "lowest", "SUM": "total"}
 
+# Pools for the construct families added after the first blind measurement (see
+# the "reaching past the old syllabus" section below). Years are strings because
+# SQLite's strftime returns TEXT, and comparing it to a bare integer silently
+# never matches -- the kind of bug that makes a query run and return nothing.
+HIRE_YEARS = ["2017", "2018", "2019", "2020", "2022", "2023"]
+# Initials / fragments for LIKE. Kept to letters and word-parts that read like a
+# real question ("names starting with A", "departments with 'ing' in the name").
+NAME_INITIALS = ["A", "B", "C", "D", "E", "J", "M", "P", "R", "S", "T", "W"]
+NAME_ENDINGS = ["a", "e", "n", "r", "y"]
+DEPT_FRAGMENTS = ["ing", "Sale", "Mark", "Fin", "Res", "Op"]
+# Inclusive ranges for BETWEEN. Written as (low, high) pairs rather than drawn
+# from the threshold pools so the two bounds are always a sensible band apart.
+SALARY_BANDS = [(50000, 90000), (60000, 120000), (70000, 110000),
+                (80000, 140000), (90000, 160000), (45000, 75000)]
+BUDGET_BANDS = [(200000, 700000), (250000, 850000), (150000, 550000),
+                (350000, 950000)]
+DATE_BANDS = [("2018-01-01", "2019-12-31"), ("2019-01-01", "2021-12-31"),
+              ("2017-06-01", "2020-06-01"), ("2021-01-01", "2023-12-31")]
+
 # ---------------------------------------------------------------------------
 # Phrasings. Each list holds interchangeable ways of asking for the SAME SQL.
 # The generator expands every pattern over every phrasing, so each SQL shape is
@@ -350,6 +369,27 @@ P_GROUP_COUNT = [
     "For every department, give the employee count.",
     "Group the employees by department and count them.",
 ]
+# The leakage filter removes the un-filtered `department, COUNT(*)` target
+# entirely, because that exact SQL is an eval gold. That left the model with no
+# example of "grouping column + COUNT(*)" *on the employees table* at all, and a
+# lexically adjacent projection ("show the department of each employee" ->
+# SELECT department FROM employees) won the tie -- the last in-taxonomy failure
+# on the dev sets. These two families restore the shape without ever emitting the
+# graded answer: one keeps the grouping column and adds a WHERE, the other keeps
+# the table and changes the grouping column. Both are ordinary questions in their
+# own right, and neither normalises to any eval gold.
+P_GROUP_COUNT_FILTERED = [
+    "For each department, how many employees earn more than {n}?",
+    "Show each department and the number of employees in it paid above {n}.",
+    "Group the employees earning over {n} by department and count them.",
+    "Per department, give the count of staff on more than {n}.",
+]
+P_GROUP_COUNT_MANAGER = [
+    "Show each manager id and the number of employees reporting to them.",
+    "For every manager, give the number of direct reports.",
+    "Group the employees by manager and count them.",
+    "Per manager id, how many employees report in?",
+]
 P_GROUP_AGG = [
     "For each department, show the {phrase}.",
     "Group by department and report the {phrase}.",
@@ -380,6 +420,141 @@ P_HAVING_LT = [
     "Which departments employ fewer than {n} people?",
     "Show the departments with under {n} staff members.",
     "Name the departments with less than {n} employees.",
+]
+
+# ---------------------------------------------------------------------------
+# Reaching past the old syllabus.
+#
+# The first blind measurement (data/eval/text2sql_eval_blind_v1_retired.jsonl)
+# put a number on something the development sets structurally could not see: of
+# its six failures, four needed a construct that appears in NO training template
+# -- a year extracted from a date, a bare SELECT DISTINCT, an IS NULL test, and
+# de-duplication of a join result. The model was not getting those wrong, it had
+# never been shown them.
+#
+# The families below close that gap at the level of the *construct*, never at the
+# level of the questions that exposed it. That distinction is the whole protocol:
+# v1 has been retired into the development loop precisely so that teaching from
+# it is legitimate, and the replacement blind set (v2) was authored independently
+# and before any of this existed. As always, the leakage filter still deletes any
+# generated pair whose SQL equals a graded answer, so the specific queries v1
+# asks for remain things the model has to reach by generalising.
+#
+# One SQLite-specific lesson is deliberate: `YEAR(hire_date)` is the natural
+# thing to write and does not exist in SQLite, so the date family teaches
+# `strftime('%Y', ...)` compared against a *quoted* year.
+# ---------------------------------------------------------------------------
+# Contrastive partner of P_DISTINCT: same word "distinct", but "how many" asks
+# for COUNT(DISTINCT col) and "which ones" asks for SELECT DISTINCT col. Teaching
+# only the counting half is what made the model drop DISTINCT when asked to list.
+P_SELECT_DISTINCT = [
+    "List the distinct {plural} in the {table} table.",
+    "What are the unique {plural} in {table}?",
+    "Show me the different {plural} that appear in {table}, without repeats.",
+    "Give me each of the {plural} in {table} exactly once.",
+    "Which {plural} appear in {table}? List each one only once.",
+]
+P_SELECT_DISTINCT_MANAGER = [
+    "List the distinct manager ids in the employees table.",
+    "Which manager ids appear in employees? Each one only once.",
+    "Give me the unique manager ids on record, without repeats.",
+]
+# Filtered halves of the same contrast, sharing one parameter pool so the only
+# thing separating them is "how many" vs "which ones". The unfiltered
+# `SELECT DISTINCT location FROM departments` target is removed by the leakage
+# filter (it is a graded answer), which would otherwise leave this family thin
+# enough to be answered with a neighbouring pattern's shape.
+P_SELECT_DISTINCT_WHERE = [
+    "Which departments have someone earning more than {n}? List each once.",
+    "List the distinct departments containing an employee paid above {n}.",
+    "Give me the unique departments where anyone earns over {n}.",
+]
+P_COUNT_DISTINCT_WHERE = [
+    "How many distinct departments have someone earning more than {n}?",
+    "Count the different departments containing an employee paid above {n}.",
+    "How many separate departments have anyone earning over {n}?",
+]
+P_NULL_MISSING = [
+    "List the names of employees who have no manager.",
+    "Which employees have no manager assigned? Names only.",
+    "Name the staff whose manager field is empty.",
+    "Who does not report to anyone? Give their names.",
+]
+P_NULL_PRESENT = [
+    "List the names of employees who do have a manager.",
+    "Which employees have a manager on record? Names only.",
+    "Name the staff whose manager field is filled in.",
+]
+P_NULL_COUNT_MISSING = [
+    "How many employees have no manager?",
+    "Count the employees with no manager assigned.",
+    "How many staff members are missing a manager?",
+]
+P_NULL_COUNT_PRESENT = [
+    "How many employees have a manager on record?",
+    "Count the employees whose manager field is filled in.",
+    "How many staff members do report to someone?",
+]
+P_NULL_DEPT = [
+    "List the names of departments with no location recorded.",
+    "Which departments are missing a location? Names only.",
+    "Name the departments whose location field is empty.",
+]
+P_NULL_DEPT_PRESENT = [
+    "Show all departments that do have a location recorded.",
+    "Which departments have a location on file? Show every column.",
+    "Give me the full rows for departments whose location is not empty.",
+]
+P_DATE_YEAR = [
+    "List the names of employees hired in {y}.",
+    "Which employees joined in {y}? Names only.",
+    "Name everyone who started in the year {y}.",
+    "Who was hired during {y}? Give their names.",
+]
+P_DATE_YEAR_COUNT = [
+    "How many employees were hired in {y}?",
+    "Count the staff who joined in {y}.",
+    "How many people started during the year {y}?",
+]
+P_LIKE_PREFIX = [
+    "List the names of employees whose name starts with {x}.",
+    "Which employees have a name beginning with {x}? Names only.",
+    "Name the staff whose name begins with the letter {x}.",
+]
+P_LIKE_SUFFIX = [
+    "List the names of employees whose name ends with {x}.",
+    "Which employees have a name ending in {x}? Names only.",
+    "Name the staff whose name finishes with the letter {x}.",
+]
+P_LIKE_CONTAINS = [
+    "List the names of departments whose name contains {x}.",
+    "Which departments have {x} somewhere in their name? Names only.",
+    "Name the departments with {x} inside the name.",
+]
+P_BETWEEN_SALARY = [
+    "List the names of employees earning between {a} and {b}.",
+    "Which employees are paid in the {a} to {b} range? Names only.",
+    "Name the staff whose salary falls between {a} and {b}.",
+]
+P_BETWEEN_BUDGET = [
+    "Show all departments with a budget between {a} and {b}.",
+    "Which departments are funded in the {a} to {b} range? Show every column.",
+    "Give me the full rows for departments whose budget sits between {a} and {b}.",
+]
+P_BETWEEN_DATE = [
+    "List the names of employees hired between {a} and {b}.",
+    "Which employees joined between {a} and {b}? Names only.",
+    "Name everyone whose hire date falls between {a} and {b}.",
+]
+P_NOT_EQUAL_DEPT = [
+    "List the names of employees who are not in the {dept} department.",
+    "Which employees work outside {dept}? Names only.",
+    "Name the staff who do not belong to {dept}.",
+]
+P_NOT_EQUAL_LOC = [
+    "Show all departments that are not located in {loc}.",
+    "Which departments sit outside {loc}? Show every column.",
+    "Give me the full rows for departments not based in {loc}.",
 ]
 
 # ---------------------------------------------------------------------------
@@ -467,6 +642,14 @@ P_SELF_JOIN_WHERE = [
     "List the names of employees whose manager works in the {dept} department.",
     "Which employees report to a manager in {dept}? Names only.",
     "Name the staff whose manager belongs to {dept}.",
+]
+# DISTINCT over a join: a manager appears once per report, so listing "the people
+# who manage someone" without DISTINCT repeats them. This is the join-flavoured
+# half of the SELECT DISTINCT lesson above.
+P_SELF_JOIN_DISTINCT = [
+    "List the names of employees who manage someone, each name only once.",
+    "Which staff members have at least one direct report? List each name once.",
+    "Give me the distinct names of the people who manage somebody.",
 ]
 
 
@@ -602,6 +785,14 @@ def generate_candidates() -> List[Example]:
         add("group_by", P_GROUP_LOC_AGG,
             f"SELECT location, {agg}(budget) FROM departments GROUP BY location",
             phrase=phrase)
+    # The ambiguity fix: restore "grouping column + COUNT(*) on employees" without
+    # ever emitting the graded answer. Own category so the cap cannot starve it.
+    for n in SALARY_THRESHOLDS[:6]:
+        add("group_count_emp", P_GROUP_COUNT_FILTERED,
+            f"SELECT department, COUNT(*) FROM employees WHERE salary > {n} "
+            f"GROUP BY department", n=n)
+    add("group_count_emp", P_GROUP_COUNT_MANAGER,
+        "SELECT manager_id, COUNT(*) FROM employees GROUP BY manager_id")
 
     # -- GROUP BY ... HAVING, both directions -------------------------------
     for n in HAVING_N:
@@ -611,6 +802,81 @@ def generate_candidates() -> List[Example]:
         add("having", P_HAVING_LT,
             f"SELECT department FROM employees GROUP BY department "
             f"HAVING COUNT(*) < {n}", n=n)
+
+    # -----------------------------------------------------------------------
+    # Construct families added after the first blind measurement. See the block
+    # comment above P_SELECT_DISTINCT for why these exist and what the protocol
+    # around them is.
+    # -----------------------------------------------------------------------
+
+    # -- SELECT DISTINCT (the "list them" half of the DISTINCT lesson) -------
+    for plural, col, table in [("departments", "department", "employees"),
+                               ("locations", "location", "departments")]:
+        add("select_distinct", P_SELECT_DISTINCT,
+            f"SELECT DISTINCT {col} FROM {table}", plural=plural, table=table)
+    add("select_distinct", P_SELECT_DISTINCT_MANAGER,
+        "SELECT DISTINCT manager_id FROM employees")
+    for n in SALARY_THRESHOLDS[:6]:
+        add("select_distinct", P_SELECT_DISTINCT_WHERE,
+            f"SELECT DISTINCT department FROM employees WHERE salary > {n}", n=n)
+        add("distinct", P_COUNT_DISTINCT_WHERE,
+            f"SELECT COUNT(DISTINCT department) FROM employees WHERE salary > {n}",
+            n=n)
+
+    # -- IS NULL / IS NOT NULL ----------------------------------------------
+    add("null_check", P_NULL_MISSING,
+        "SELECT name FROM employees WHERE manager_id IS NULL")
+    add("null_check", P_NULL_PRESENT,
+        "SELECT name FROM employees WHERE manager_id IS NOT NULL")
+    add("null_check", P_NULL_COUNT_MISSING,
+        "SELECT COUNT(*) FROM employees WHERE manager_id IS NULL")
+    add("null_check", P_NULL_COUNT_PRESENT,
+        "SELECT COUNT(*) FROM employees WHERE manager_id IS NOT NULL")
+    add("null_check", P_NULL_DEPT,
+        "SELECT name FROM departments WHERE location IS NULL")
+    add("null_check", P_NULL_DEPT_PRESENT,
+        "SELECT * FROM departments WHERE location IS NOT NULL")
+
+    # -- year extracted from an ISO date (strftime, not YEAR) ---------------
+    for y in HIRE_YEARS:
+        add("date_year", P_DATE_YEAR,
+            f"SELECT name FROM employees WHERE strftime('%Y', hire_date) = '{y}'", y=y)
+        add("date_year", P_DATE_YEAR_COUNT,
+            f"SELECT COUNT(*) FROM employees "
+            f"WHERE strftime('%Y', hire_date) = '{y}'", y=y)
+
+    # -- LIKE: prefix, suffix and substring ---------------------------------
+    for x in NAME_INITIALS:
+        add("like_match", P_LIKE_PREFIX,
+            f"SELECT name FROM employees WHERE name LIKE '{x}%'", x=x)
+    for x in NAME_ENDINGS:
+        add("like_match", P_LIKE_SUFFIX,
+            f"SELECT name FROM employees WHERE name LIKE '%{x}'", x=x)
+    for x in DEPT_FRAGMENTS:
+        add("like_match", P_LIKE_CONTAINS,
+            f"SELECT name FROM departments WHERE name LIKE '%{x}%'", x=x)
+
+    # -- BETWEEN on a number and on a date ----------------------------------
+    for lo, hi in SALARY_BANDS:
+        add("between", P_BETWEEN_SALARY,
+            f"SELECT name FROM employees WHERE salary BETWEEN {lo} AND {hi}",
+            a=lo, b=hi)
+    for lo, hi in BUDGET_BANDS:
+        add("between", P_BETWEEN_BUDGET,
+            f"SELECT * FROM departments WHERE budget BETWEEN {lo} AND {hi}",
+            a=lo, b=hi)
+    for lo, hi in DATE_BANDS:
+        add("between", P_BETWEEN_DATE,
+            f"SELECT name FROM employees "
+            f"WHERE hire_date BETWEEN '{lo}' AND '{hi}'", a=lo, b=hi)
+
+    # -- negation (!=) -------------------------------------------------------
+    for dept in DEPARTMENTS[:8]:
+        add("not_equal", P_NOT_EQUAL_DEPT,
+            f"SELECT name FROM employees WHERE department != '{dept}'", dept=dept)
+    for loc in LOCATIONS[:8]:
+        add("not_equal", P_NOT_EQUAL_LOC,
+            f"SELECT * FROM departments WHERE location != '{loc}'", loc=loc)
 
     # -----------------------------------------------------------------------
     # Multi-table JOINs. Parameter pools are deliberately narrower here than
@@ -681,6 +947,7 @@ def generate_candidates() -> List[Example]:
         add("self_join", P_SELF_JOIN_PROJECT,
             f"SELECT e.name, m.{mcol} {JOIN_SELF}", mcol=mcol.replace("_", " "))
     add("self_join", P_SELF_JOIN_COUNT, f"SELECT COUNT(*) {JOIN_SELF}")
+    add("self_join", P_SELF_JOIN_DISTINCT, f"SELECT DISTINCT m.name {JOIN_SELF}")
     for dept in DEPARTMENTS[:4]:
         add("self_join", P_SELF_JOIN_WHERE,
             f"SELECT e.name {JOIN_SELF} WHERE m.department = '{dept}'", dept=dept)
