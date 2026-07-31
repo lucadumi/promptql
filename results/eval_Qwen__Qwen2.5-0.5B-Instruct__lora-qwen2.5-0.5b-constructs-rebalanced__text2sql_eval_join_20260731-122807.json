@@ -1,0 +1,151 @@
+{
+  "summary": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "adapter": "adapters/lora-qwen2.5-0.5b-constructs-rebalanced",
+    "schema": "employees",
+    "device": "mps",
+    "quantized": false,
+    "eval_file": "data/eval/text2sql_eval_join.jsonl",
+    "n_examples": 12,
+    "exact_match": 1.0,
+    "execution_accuracy": 1.0,
+    "correct": 12,
+    "exec_correct": 12,
+    "seconds": 8.6,
+    "timestamp_utc": "2026-07-31T12:28:07+00:00"
+  },
+  "records": [
+    {
+      "id": 1,
+      "question": "List each employee's name together with the budget of their department.",
+      "gold": "SELECT employees.name, departments.budget FROM employees JOIN departments ON employees.department = departments.name",
+      "prediction_raw": "SELECT employees.name, departments.budget FROM employees JOIN departments ON employees.department = departments.name",
+      "prediction_norm": "select employees.name, departments.budget from employees join departments on employees.department = departments.name",
+      "gold_norm": "select employees.name, departments.budget from employees join departments on employees.department = departments.name",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 2,
+      "question": "Show each employee's name and the location of their department.",
+      "gold": "SELECT employees.name, departments.location FROM employees JOIN departments ON employees.department = departments.name",
+      "prediction_raw": "SELECT employees.name, departments.location FROM employees JOIN departments ON employees.department = departments.name",
+      "prediction_norm": "select employees.name, departments.location from employees join departments on employees.department = departments.name",
+      "gold_norm": "select employees.name, departments.location from employees join departments on employees.department = departments.name",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 3,
+      "question": "List the names of employees who work in departments located in New York.",
+      "gold": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'New York'",
+      "prediction_raw": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'New York'",
+      "prediction_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'new york'",
+      "gold_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'new york'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 4,
+      "question": "List the names of employees whose department has a budget over 500000.",
+      "gold": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.budget > 500000",
+      "prediction_raw": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.budget > 500000",
+      "prediction_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.budget > 500000",
+      "gold_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.budget > 500000",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 5,
+      "question": "How many employees work in departments located in London?",
+      "gold": "SELECT COUNT(*) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'London'",
+      "prediction_raw": "SELECT COUNT(*) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'London'",
+      "prediction_norm": "select count(*) from employees join departments on employees.department = departments.name where departments.location = 'london'",
+      "gold_norm": "select count(*) from employees join departments on employees.department = departments.name where departments.location = 'london'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 6,
+      "question": "For each department location, show the location and the average salary of the employees working there.",
+      "gold": "SELECT departments.location, AVG(employees.salary) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location",
+      "prediction_raw": "SELECT departments.location, AVG(employees.salary) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location",
+      "prediction_norm": "select departments.location, avg(employees.salary) from employees join departments on employees.department = departments.name group by departments.location",
+      "gold_norm": "select departments.location, avg(employees.salary) from employees join departments on employees.department = departments.name group by departments.location",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 7,
+      "question": "For each department location, show the location and how many employees work there.",
+      "gold": "SELECT departments.location, COUNT(*) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location",
+      "prediction_raw": "SELECT departments.location, COUNT(*) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location",
+      "prediction_norm": "select departments.location, count(*) from employees join departments on employees.department = departments.name group by departments.location",
+      "gold_norm": "select departments.location, count(*) from employees join departments on employees.department = departments.name group by departments.location",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 8,
+      "question": "List the names of employees in New York departments, ordered by salary from highest to lowest.",
+      "gold": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'New York' ORDER BY employees.salary DESC",
+      "prediction_raw": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'New York' ORDER BY employees.salary DESC",
+      "prediction_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'new york' order by employees.salary desc",
+      "gold_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'new york' order by employees.salary desc",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 9,
+      "question": "List the department locations that have more than 10 employees.",
+      "gold": "SELECT departments.location FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location HAVING COUNT(*) > 10",
+      "prediction_raw": "SELECT departments.location FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location HAVING COUNT(*) > 10",
+      "prediction_norm": "select departments.location from employees join departments on employees.department = departments.name group by departments.location having count(*) > 10",
+      "gold_norm": "select departments.location from employees join departments on employees.department = departments.name group by departments.location having count(*) > 10",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 10,
+      "question": "What is the highest salary among employees in departments located in London?",
+      "gold": "SELECT MAX(employees.salary) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'London'",
+      "prediction_raw": "SELECT MAX(employees.salary) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'London'",
+      "prediction_norm": "select max(employees.salary) from employees join departments on employees.department = departments.name where departments.location = 'london'",
+      "gold_norm": "select max(employees.salary) from employees join departments on employees.department = departments.name where departments.location = 'london'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 11,
+      "question": "Find the name of the highest paid employee working in a department located in Berlin.",
+      "gold": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'Berlin' ORDER BY employees.salary DESC LIMIT 1",
+      "prediction_raw": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'Berlin' ORDER BY employees.salary DESC LIMIT 1",
+      "prediction_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'berlin' order by employees.salary desc limit 1",
+      "gold_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'berlin' order by employees.salary desc limit 1",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    },
+    {
+      "id": 12,
+      "question": "List each employee's name along with the name of their manager.",
+      "gold": "SELECT e.name, m.name FROM employees e JOIN employees m ON e.manager_id = m.id",
+      "prediction_raw": "SELECT e.name, m.name FROM employees e JOIN employees m ON e.manager_id = m.id",
+      "prediction_norm": "select e.name, m.name from employees e join employees m on e.manager_id = m.id",
+      "gold_norm": "select e.name, m.name from employees e join employees m on e.manager_id = m.id",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null
+    }
+  ]
+}

@@ -32,3 +32,18 @@
 | 2026-07-30T13:30:37+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join` | text2sql_eval | cpu | 20 | 95.0% | 95.0% |
 | 2026-07-30T13:33:11+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join [int8]` | text2sql_eval | cpu | 20 | 75.0% | 75.0% |
 | 2026-07-30T13:33:40+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-join [int8]` | text2sql_eval_blind | cpu | 24 | 16.7% | 20.8% |
+| 2026-07-31T12:07:20+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval | mps | 20 | 100.0% | 100.0% |
+| 2026-07-31T12:07:30+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval_paraphrase | mps | 20 | 100.0% | 100.0% |
+| 2026-07-31T12:07:40+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval_bookstore | mps | 20 | 100.0% | 100.0% |
+| 2026-07-31T12:07:52+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval_join | mps | 12 | 100.0% | 100.0% |
+| 2026-07-31T12:08:03+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval_join_bookstore | mps | 11 | 81.8% | 81.8% |
+| 2026-07-31T12:08:18+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval_blind_v1_retired | mps | 24 | 75.0% | 87.5% |
+| 2026-07-31T12:27:33+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs-rebalanced` | text2sql_eval | mps | 20 | 95.0% | 95.0% |
+| 2026-07-31T12:27:44+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs-rebalanced` | text2sql_eval_paraphrase | mps | 20 | 95.0% | 95.0% |
+| 2026-07-31T12:27:55+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs-rebalanced` | text2sql_eval_bookstore | mps | 20 | 95.0% | 95.0% |
+| 2026-07-31T12:28:07+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs-rebalanced` | text2sql_eval_join | mps | 12 | 100.0% | 100.0% |
+| 2026-07-31T12:28:19+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs-rebalanced` | text2sql_eval_join_bookstore | mps | 11 | 72.7% | 72.7% |
+| 2026-07-31T12:28:37+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs-rebalanced` | text2sql_eval_blind_v1_retired | mps | 24 | 83.3% | 91.7% |
+| 2026-07-31T12:30:31+00:00 | `Qwen/Qwen2.5-0.5B-Instruct` | text2sql_eval_blind_v2 | mps | 30 | 10.0% | 10.0% |
+| 2026-07-31T12:30:58+00:00 | `Qwen/Qwen2.5-0.5B-Instruct + lora-qwen2.5-0.5b-constructs` | text2sql_eval_blind_v2 | mps | 30 | 30.0% | 36.7% |
+| 2026-07-31T12:33:02+00:00 | `Qwen/Qwen2.5-1.5B-Instruct` | text2sql_eval_blind_v2 | mps | 30 | 23.3% | 43.3% |
