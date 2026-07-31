@@ -21,6 +21,7 @@ from src.build_dataset import (
     jaccard,
     normalize_question,
     question_words,
+    swap_join_order,
     verify_no_leakage,
     write_jsonl,
 )
@@ -250,13 +251,65 @@ class TestJoinCoverage:
         rep = _build()
         return rep["train"] + rep["val"]
 
+    def test_no_training_target_is_a_reversed_eval_gold(self):
+        """Teaching both table orders opens a leak the string-equality filter
+        cannot see on its own: `FROM a JOIN b ON a.x = b.y` and
+        `FROM b JOIN a ON b.y = a.x` are the same query spelled two ways, so a
+        reversed graded answer would look like a brand new target. Reversing was
+        tried and rejected on accuracy grounds, but the blocklist still covers both
+        spellings so that revisiting the decision cannot silently leak."""
+        golds = set()
+        for path in default_eval_files():
+            for row in load_jsonl(path):
+                golds.add(normalize_sql(row["sql"]))
+                golds.add(normalize_sql(swap_join_order(row["sql"])))
+        clashes = [sql for _c, _q, sql in self._kept()
+                   if normalize_sql(sql) in golds]
+        assert clashes == [], f"reversed eval golds leaked into training: {clashes[:3]}"
+
     def test_join_families_all_survive_de_leaking(self):
         rep = _build()
         join_cats = {c for c in rep["by_cat"] if c.startswith(("join_", "self_join"))}
         assert join_cats == {"join_project", "join_where", "join_count",
-                             "join_group", "join_order", "self_join"}
+                             "join_group", "join_having", "join_order", "self_join"}
         for cat in join_cats:
             assert rep["by_cat"][cat] > 0
+
+    def test_grouping_on_a_joined_column_is_not_starved(self):
+        """Category counts are too coarse to catch this, and that is how it got
+        through once already.
+
+        The shape `SELECT <joined column>, <aggregate> ... GROUP BY <joined column>`
+        had two of its targets deleted by the leakage filter (both are eval golds)
+        while six HAVING targets shared its cap, leaving 6 examples against 42
+        single-table ones. The category still read as a healthy 24. The model kept
+        answering correctly on the schema it trained on and started dropping the
+        join on the unseen integer-FK schema.
+
+        So the invariant is asserted on the SQL *shape*, not the category label.
+        """
+        kept = self._kept()
+        single = joined = 0
+        for _c, _q, sql in kept:
+            if "GROUP BY" not in sql:
+                continue
+            select_list = sql[len("SELECT "):sql.index(" FROM")]
+            if not re.search(r"(COUNT|AVG|SUM|MAX|MIN)\(", select_list):
+                continue  # a HAVING-only query: different shape, different lesson
+            if " JOIN " in sql:
+                joined += 1
+            else:
+                single += 1
+        assert joined >= 15, (
+            f"only {joined} examples group by a joined column with an aggregate in "
+            "the SELECT list; the two most natural targets are eval golds, so this "
+            "family needs filtered variants to stay alive"
+        )
+        assert single <= 3 * joined, (
+            f"single-table grouping ({single}) outweighs the joined form ({joined}) "
+            "badly enough that the model will generalise to the wrong one on an "
+            "unseen schema"
+        )
 
     def test_both_join_shapes_are_taught(self):
         sqls = [normalize_sql(sql) for _c, _q, sql in self._kept()]
