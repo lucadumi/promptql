@@ -5,7 +5,7 @@ for the baseline and for every fine-tuned model, so the numbers are directly com
 
 They fall into two groups, and the distinction matters more than any individual file:
 
-- **Six development sets.** Each isolates one variable, and each has fed at least one
+- **Seven development sets.** Each isolates one variable, and each has fed at least one
   data-curation decision. They are honest measurements of what they measure, but they are
   no longer *unbiased* - failures on them were read and acted upon.
 - **One held-back (blind) set.** Written by an independent author who never saw the
@@ -13,13 +13,15 @@ They fall into two groups, and the distinction matters more than any individual 
   used to steer the training data. It is the project's only unbiased estimate, and it stays
   that way only while it is left alone.
 
-A blind set is spendable, and this project has spent one. `text2sql_eval_blind_v1_retired.jsonl`
-*was* the blind set. Its failures were read, the construct families they exposed were taught,
-and that is precisely what converts a blind set into development signal. So it was retired
-into the development group - renamed, added to `make eval-all`, and no longer quoted as
-unbiased - and replaced by `text2sql_eval_blind_v2.jsonl`. Retiring it is the honest
-accounting; deleting it would lose a useful regression set, and re-scoring it as though it
-were still blind would be a lie.
+A blind set is spendable, and this project has spent two. Each was scored once, then its
+failures were read and acted on - v1's motivated seven construct families, v2's exposed a
+starved training pattern and a vocabulary fragility. Reading a blind set's failures is
+precisely what converts it into development signal, so each was retired into the development
+group: renamed `_retired`, added to `make eval-all`, and no longer quoted as unbiased.
+`text2sql_eval_blind_v3.jsonl` is the current one, written by a second independent author
+against the frozen model. Retiring the old ones is the honest accounting; deleting them would
+lose useful regression sets, and re-scoring them as though they were still blind would be a
+lie.
 
 ## Files
 - `text2sql_eval.jsonl` - 20 examples, one JSON object per line:
@@ -48,16 +50,22 @@ were still blind would be a lie.
   (`books.publisher_id = publishers.id`) instead of a text name. Bookstore prompt and DB.
   Training only ever shows the text-key join, so this set measures whether the model
   transfers *the idea of a join* or memorised one join condition.
+- `text2sql_eval_blind_v2_retired.jsonl` - the **retired second blind set**: 30 fresh intents on
+  the employees schema, the first written by an independent author. Its failures exposed two
+  things: the join-grouping family had silently starved in training, and the model is brittle to
+  schema *vocabulary* (its author says "team" where the schema says `department`, and the model
+  invents a `teams` table). Acting on both spent it, so it now runs as part of `make eval-all`.
 - `text2sql_eval_blind_v1_retired.jsonl` - the **retired first blind set**: 24 fresh intents
   on the employees schema, written after the first shipped adapter was frozen and scored
   once. Its six failures showed that four of them needed a construct present in **no**
   training template (`strftime`, a bare `SELECT DISTINCT`, `IS NULL`, de-duplicating a join
   result). Teaching those families spent this set, so it now lives in the development group
   and runs as part of `make eval-all`, where it guards against regressing them.
-- `text2sql_eval_blind_v2.jsonl` - the **current held-back (blind)** set: 30 fresh intents
-  on the employees schema, tagged `easy` / `medium` / `hard` by their author. Written by an
-  independent party under enforced isolation (see below). Scored **once** per model; see
-  `tests/test_eval_blind.py`.
+- `text2sql_eval_blind_v3.jsonl` - the **current held-back (blind)** set: 30 fresh intents on
+  the employees schema, tagged `easy` / `medium` / `hard` by their author (8 / 14 / 8). Written
+  by a second independent party under enforced isolation (see below), and verified to change
+  **zero** training examples, so its score describes exactly the frozen adapter. Scored **once**
+  per model; see `tests/test_eval_blind.py`.
 
 
 ## Fixed schema
@@ -84,7 +92,7 @@ CREATE TABLE books      (id INTEGER PRIMARY KEY, title TEXT, genre TEXT,
 - Hand-written by me to cover a spread of SQL constructs:
   projection, `COUNT`/`AVG`/`SUM`/`MAX`, `WHERE` (numeric, string, date),
   `ORDER BY`, `LIMIT`, `DISTINCT`, `GROUP BY`, and `HAVING`. The one exception is
-  `text2sql_eval_blind_v2.jsonl`, which was written by an independent author precisely so
+  `text2sql_eval_blind_v3.jsonl`, which was written by an independent author precisely so
   that the project's headline number does not depend on the data curator also setting the
   exam - see "The blind set specifically" below.
 - Gold SQL is canonical and minimal (no trailing semicolon, single quotes for
@@ -116,31 +124,33 @@ CREATE TABLE books      (id INTEGER PRIMARY KEY, title TEXT, genre TEXT,
 ### The blind set specifically
 
 - **Written by someone else, under enforced isolation.** The weakest part of v1 was that
-  the person who curated the training data also wrote the "unbiased" test. v2 fixes that: it
-  was authored by an independent agent given read access to exactly two files -
+  the person who curated the training data also wrote the "unbiased" test. v2 and v3 fix that:
+  each was authored by an independent agent given read access to exactly two files -
   `src/data_utils.py` (the schema) and `src/db.py` (the seed rows) - and explicitly denied
   the training generator, every existing eval set, the results directory, the READMEs and
   any model output. It was told to write the questions a data analyst would actually ask,
   with a spread of difficulty, and was *not* told which SQL constructs the project teaches.
-- **The author owns the questions; the curator only fixed well-posedness.** Two rounds of
-  review changed golds, never intents: cosmetic `ORDER BY` clauses were removed (see below),
-  and questions that did not say which columns to return were made explicit. Four questions
-  were then copy-edited for English fluency, preserving the author's semantics exactly. All
-  of this happened *before* any model was run.
+- **The author owns the questions; the curator only fixed well-posedness.** Review changes
+  golds, never intents: cosmetic `ORDER BY` clauses are removed (see below), questions that do
+  not say which columns to return are made explicit, and golds that turn out to be verbatim
+  training examples are sent back to be replaced. All of it happens *before* any model is run.
+  For v3 that took one revision round: three of its first-draft golds were training targets,
+  because the supply of canonical single-condition queries over a two-table schema is small and
+  the generator already covers most of it.
 - **Ordering has to be earned.** `execution_match` compares result sets as a multiset unless
   the gold contains `ORDER BY`, in which case row order must match exactly. A gold that
   orders for readability therefore grades a correct answer wrong. Every `ORDER BY` in this
   set is justified by the question ("highest first", "cheapest first") or is load-bearing for
   a `LIMIT`; `tests/test_eval_blind.py::TestOrderingIsEarned` enforces it.
-- **No question is reachable by the generator; four golds are.** No blind *question* can be
-  produced by `src/build_dataset.py` under any phrasing or parameter - so none is a training
-  template in disguise. Four *golds* are reachable, because questions like "what's the
-  average salary in Sales?" have exactly one natural SQL answer. Rather than distort the eval
-  set to dodge that, the leakage filter deletes those targets from training entirely (13
-  candidate rows), which is the same treatment every other eval gold gets: the model has to
-  reach them by generalising. This is the one property where v2 is weaker than v1, and it is
-  a deliberate trade - v1's stricter version only mattered because it was scored against an
-  already-frozen adapter without retraining.
+- **No question is reachable by the generator, and no gold is a training example.** No blind
+  *question* can be produced by `src/build_dataset.py` under any phrasing or parameter, so none
+  is a training template in disguise; and no gold appears in the committed training split, which
+  is the bar that actually matters. v3 clears a further one that v2 did not: adding it to
+  `data/eval` changes **zero** training examples, so its score describes exactly the frozen
+  adapter with no retraining and no moving target.
+  Four of its golds do coincide with *development-set* answers. That is duplication, not
+  contamination - the model was never trained on a dev gold either, and the questions here are
+  freshly written - and `tests/test_eval_blind.py` bounds it at a fifth of the set.
 - **It is graded per difficulty tier.** The author tagged each question `easy`, `medium` or
   `hard`, and the results are reported per tier. An aggregate over a set that ranges from
   `SELECT salary FROM employees WHERE name = 'Peggy'` to correlated `NOT EXISTS` subqueries
@@ -150,8 +160,8 @@ CREATE TABLE books      (id INTEGER PRIMARY KEY, title TEXT, genre TEXT,
 - **The protocol is the point.** `make eval-blind` is deliberately excluded from
   `make eval-all`, and `tests/test_eval_blind.py` fails if anyone adds it. Score a model
   once, record it, and do **not** curate against the failures. The moment a failure here is
-  "fixed", this becomes just another dev set - which is exactly what happened to v1, and why
-  v1 is now named `_retired` and sits in `eval-all`.
+  "fixed", this becomes just another dev set - which is exactly what happened to v1 and v2, and
+  why both are now named `_retired` and sit in `eval-all`.
 
 ## Important
 - This is the **eval** split only. Keep training data in a separate file

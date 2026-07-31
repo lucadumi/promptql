@@ -1,0 +1,437 @@
+{
+  "summary": {
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "adapter": "adapters/lora-qwen2.5-0.5b-joingroup",
+    "schema": "employees",
+    "device": "mps",
+    "quantized": false,
+    "repair_attempts": 1,
+    "n_repaired": 0,
+    "eval_file": "data/eval/text2sql_eval_blind_v2_retired.jsonl",
+    "n_examples": 30,
+    "exact_match": 0.3,
+    "execution_accuracy": 0.4,
+    "correct": 9,
+    "exec_correct": 12,
+    "seconds": 22.9,
+    "timestamp_utc": "2026-07-31T15:01:43+00:00"
+  },
+  "records": [
+    {
+      "id": 1,
+      "question": "Show me the names and salaries of anyone earning more than $140,000, highest salary first.",
+      "gold": "SELECT name, salary FROM employees WHERE salary > 140000 ORDER BY salary DESC",
+      "prediction_raw": "SELECT name, salary FROM employees WHERE salary > 140000 ORDER BY salary DESC",
+      "prediction_norm": "select name, salary from employees where salary > 140000 order by salary desc",
+      "gold_norm": "select name, salary from employees where salary > 140000 order by salary desc",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 2,
+      "question": "Who was hired during 2023?",
+      "gold": "SELECT name FROM employees WHERE hire_date >= '2023-01-01' AND hire_date < '2024-01-01'",
+      "prediction_raw": "SELECT name FROM employees WHERE strftime('%Y', hire_date) = '2023'",
+      "prediction_norm": "select name from employees where strftime('%y', hire_date) = '2023'",
+      "gold_norm": "select name from employees where hire_date >= '2023-01-01' and hire_date < '2024-01-01'",
+      "correct": false,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 3,
+      "question": "For the department records in New York, show the department name and budget.",
+      "gold": "SELECT name, budget FROM departments WHERE location = 'New York'",
+      "prediction_raw": "SELECT departments.name, departments.budget FROM departments JOIN employees ON departments.department = employees.department WHERE departments.location = 'New York'",
+      "prediction_norm": "select departments.name, departments.budget from departments join employees on departments.department = employees.department where departments.location = 'new york'",
+      "gold_norm": "select name, budget from departments where location = 'new york'",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: departments.department",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: departments.department"
+      ]
+    },
+    {
+      "id": 4,
+      "question": "Who doesn't report to a manager?",
+      "gold": "SELECT name FROM employees WHERE manager_id IS NULL",
+      "prediction_raw": "SELECT name FROM employees WHERE manager_id IS NULL",
+      "prediction_norm": "select name from employees where manager_id is null",
+      "gold_norm": "select name from employees where manager_id is null",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 5,
+      "question": "Give me the names and salaries of the three lowest-paid employees, cheapest first.",
+      "gold": "SELECT name, salary FROM employees ORDER BY salary ASC LIMIT 3",
+      "prediction_raw": "SELECT name, salary FROM employees ORDER BY salary ASC LIMIT 3",
+      "prediction_norm": "select name, salary from employees order by salary asc limit 3",
+      "gold_norm": "select name, salary from employees order by salary asc limit 3",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 6,
+      "question": "What salary is recorded for Peggy?",
+      "gold": "SELECT salary FROM employees WHERE name = 'Peggy'",
+      "prediction_raw": "SELECT salary FROM employees WHERE name = 'Peggy'",
+      "prediction_norm": "select salary from employees where name = 'peggy'",
+      "gold_norm": "select salary from employees where name = 'peggy'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 7,
+      "question": "Show the names and departments of non-Engineering employees hired before 2020.",
+      "gold": "SELECT name, department FROM employees WHERE department <> 'Engineering' AND hire_date < '2020-01-01'",
+      "prediction_raw": "SELECT employees.name, departments.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.name != 'Engineering' AND hire_date < '2020-01-01'",
+      "prediction_norm": "select employees.name, departments.name from employees join departments on employees.department = departments.name where departments.name != 'engineering' and hire_date < '2020-01-01'",
+      "gold_norm": "select name, department from employees where department <> 'engineering' and hire_date < '2020-01-01'",
+      "correct": false,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 8,
+      "question": "Which departments have a budget below $500,000? Just the department names.",
+      "gold": "SELECT name FROM departments WHERE budget < 500000",
+      "prediction_raw": "SELECT name FROM departments WHERE budget < 500000",
+      "prediction_norm": "select name from departments where budget < 500000",
+      "gold_norm": "select name from departments where budget < 500000",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 9,
+      "question": "What's the average salary in Sales?",
+      "gold": "SELECT AVG(salary) FROM employees WHERE department = 'Sales'",
+      "prediction_raw": "SELECT AVG(salary) FROM employees WHERE department = 'Sales'",
+      "prediction_norm": "select avg(salary) from employees where department = 'sales'",
+      "gold_norm": "select avg(salary) from employees where department = 'sales'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 10,
+      "question": "For each manager, give their name and direct-report count, busiest first.",
+      "gold": "SELECT managers.name, COUNT(*) FROM employees JOIN employees AS managers ON employees.manager_id = managers.id GROUP BY managers.id, managers.name ORDER BY COUNT(*) DESC",
+      "prediction_raw": "SELECT m.name, r.direct_count FROM employees e JOIN employees m ON e.manager_id = m.id ORDER BY r.direct_count ASC",
+      "prediction_norm": "select m.name, r.direct_count from employees e join employees m on e.manager_id = m.id order by r.direct_count asc",
+      "gold_norm": "select managers.name, count(*) from employees join employees as managers on employees.manager_id = managers.id group by managers.id, managers.name order by count(*) desc",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: r.direct_count",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: r.direct_count"
+      ]
+    },
+    {
+      "id": 11,
+      "question": "Which teams' total employee salaries exceed $300,000? Show the team and total.",
+      "gold": "SELECT department, SUM(salary) FROM employees GROUP BY department HAVING SUM(salary) > 300000",
+      "prediction_raw": "SELECT teams.name, SUM(employees.salary) FROM employees JOIN teams ON employees.department = teams.name WHERE employees.salary > 300000 GROUP BY teams.name",
+      "prediction_norm": "select teams.name, sum(employees.salary) from employees join teams on employees.department = teams.name where employees.salary > 300000 group by teams.name",
+      "gold_norm": "select department, sum(salary) from employees group by department having sum(salary) > 300000",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such table: teams",
+      "attempts": 1,
+      "repair_errors": [
+        "no such table: teams"
+      ]
+    },
+    {
+      "id": 12,
+      "question": "Which employees work in a department listed as being in London? I only want their names.",
+      "gold": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'London'",
+      "prediction_raw": "SELECT employees.name FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'London'",
+      "prediction_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'london'",
+      "gold_norm": "select employees.name from employees join departments on employees.department = departments.name where departments.location = 'london'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 13,
+      "question": "What is the allocated budget of Rupert's department?",
+      "gold": "SELECT departments.budget FROM employees JOIN departments ON employees.department = departments.name WHERE employees.name = 'Rupert'",
+      "prediction_raw": "SELECT budget FROM employees WHERE name = 'Rupert' AND department = 'departments'",
+      "prediction_norm": "select budget from employees where name = 'rupert' and department = 'departments'",
+      "gold_norm": "select departments.budget from employees join departments on employees.department = departments.name where employees.name = 'rupert'",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: budget",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: budget"
+      ]
+    },
+    {
+      "id": 14,
+      "question": "How many employees work at departments located in New York?",
+      "gold": "SELECT COUNT(*) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'New York'",
+      "prediction_raw": "SELECT COUNT(*) FROM employees JOIN departments ON employees.department = departments.name WHERE departments.location = 'New York'",
+      "prediction_norm": "select count(*) from employees join departments on employees.department = departments.name where departments.location = 'new york'",
+      "gold_norm": "select count(*) from employees join departments on employees.department = departments.name where departments.location = 'new york'",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 15,
+      "question": "Show each team's most recent hire date, but only if its latest hire was on or after 1 January 2022.",
+      "gold": "SELECT department, MAX(hire_date) FROM employees GROUP BY department HAVING MAX(hire_date) >= '2022-01-01'",
+      "prediction_raw": "SELECT teams.hire_date FROM employees JOIN teams ON employees.manager_id = teams.id WHERE teams.hire_date > '2022-01-01' ORDER BY teams.hire_date DESC",
+      "prediction_norm": "select teams.hire_date from employees join teams on employees.manager_id = teams.id where teams.hire_date > '2022-01-01' order by teams.hire_date desc",
+      "gold_norm": "select department, max(hire_date) from employees group by department having max(hire_date) >= '2022-01-01'",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such table: teams",
+      "attempts": 1,
+      "repair_errors": [
+        "no such table: teams"
+      ]
+    },
+    {
+      "id": 16,
+      "question": "How many distinct teams had at least one employee hired before 2019?",
+      "gold": "SELECT COUNT(DISTINCT department) FROM employees WHERE hire_date < '2019-01-01'",
+      "prediction_raw": "SELECT COUNT(DISTINCT team) FROM employees WHERE hire_date < '2019'",
+      "prediction_norm": "select count(distinct team) from employees where hire_date < '2019'",
+      "gold_norm": "select count(distinct department) from employees where hire_date < '2019-01-01'",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: team",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: team"
+      ]
+    },
+    {
+      "id": 17,
+      "question": "Who earns exactly $5,000 less than Alice?",
+      "gold": "SELECT name FROM employees WHERE salary = (SELECT salary - 5000 FROM employees WHERE name = 'Alice')",
+      "prediction_raw": "SELECT name FROM employees WHERE salary = (SELECT salary FROM employees WHERE name = 'Alice' - 5000)",
+      "prediction_norm": "select name from employees where salary = (select salary from employees where name = 'alice' - 5000)",
+      "gold_norm": "select name from employees where salary = (select salary - 5000 from employees where name = 'alice')",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 18,
+      "question": "Give headcount by office location, but only for locations with at least three employees.",
+      "gold": "SELECT departments.location, COUNT(*) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location HAVING COUNT(*) >= 3",
+      "prediction_raw": "SELECT offices.location, COUNT(*) FROM employees JOIN departments ON employees.department = departments.name GROUP BY offices.location HAVING COUNT(*) >= 3",
+      "prediction_norm": "select offices.location, count(*) from employees join departments on employees.department = departments.name group by offices.location having count(*) >= 3",
+      "gold_norm": "select departments.location, count(*) from employees join departments on employees.department = departments.name group by departments.location having count(*) >= 3",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: offices.location",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: offices.location"
+      ]
+    },
+    {
+      "id": 19,
+      "question": "Which teams have a difference of more than $9,000 between their highest- and lowest-paid employees? Show the difference.",
+      "gold": "SELECT department, MAX(salary) - MIN(salary) FROM employees GROUP BY department HAVING MAX(salary) - MIN(salary) > 9000",
+      "prediction_raw": "SELECT MAX(employees.salary) - MIN(employees.salary) FROM employees GROUP BY employees.team ORDER BY MAX(employees.salary) - MIN(employees.salary) DESC",
+      "prediction_norm": "select max(employees.salary) - min(employees.salary) from employees group by employees.team order by max(employees.salary) - min(employees.salary) desc",
+      "gold_norm": "select department, max(salary) - min(salary) from employees group by department having max(salary) - min(salary) > 9000",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: employees.team",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: employees.team"
+      ]
+    },
+    {
+      "id": 20,
+      "question": "Which entries in the departments table have a budget above the average department budget? Show the name and budget.",
+      "gold": "SELECT name, budget FROM departments WHERE budget > (SELECT AVG(budget) FROM departments)",
+      "prediction_raw": "SELECT name, budget FROM departments WHERE budget > (SELECT AVG(budget) FROM departments)",
+      "prediction_norm": "select name, budget from departments where budget > (select avg(budget) from departments)",
+      "gold_norm": "select name, budget from departments where budget > (select avg(budget) from departments)",
+      "correct": true,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 21,
+      "question": "Which employees were hired before the manager they report to? Give me just the names.",
+      "gold": "SELECT employees.name FROM employees JOIN employees AS managers ON employees.manager_id = managers.id WHERE employees.hire_date < managers.hire_date",
+      "prediction_raw": "SELECT name FROM employees WHERE manager_id IS NULL",
+      "prediction_norm": "select name from employees where manager_id is null",
+      "gold_norm": "select employees.name from employees join employees as managers on employees.manager_id = managers.id where employees.hire_date < managers.hire_date",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 22,
+      "question": "From 2019 through 2022, how many hires occurred in each calendar year that had at least four hires?",
+      "gold": "SELECT strftime('%Y', hire_date), COUNT(*) FROM employees WHERE hire_date >= '2019-01-01' AND hire_date < '2023-01-01' GROUP BY strftime('%Y', hire_date) HAVING COUNT(*) >= 4",
+      "prediction_raw": "SELECT YEAR(hire_date) AS year, COUNT(*) FROM employees WHERE YEAR(hire_date) BETWEEN 2019 AND 2022 GROUP BY YEAR(hire_date) HAVING COUNT(*) >= 4",
+      "prediction_norm": "select year(hire_date) as year, count(*) from employees where year(hire_date) between 2019 and 2022 group by year(hire_date) having count(*) >= 4",
+      "gold_norm": "select strftime('%y', hire_date), count(*) from employees where hire_date >= '2019-01-01' and hire_date < '2023-01-01' group by strftime('%y', hire_date) having count(*) >= 4",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such function: YEAR",
+      "attempts": 1,
+      "repair_errors": [
+        "no such function: YEAR"
+      ]
+    },
+    {
+      "id": 23,
+      "question": "Who earns more than the average salary of their own team? Include each person's team.",
+      "gold": "SELECT e.name, e.department FROM employees AS e WHERE e.salary > (SELECT AVG(salary) FROM employees WHERE department = e.department)",
+      "prediction_raw": "SELECT e.name FROM employees e JOIN (SELECT employee_name, AVG(salary) as avg_salary FROM employees GROUP BY employee_name) m ON e.salary > m.avg_salary",
+      "prediction_norm": "select e.name from employees e join (select employee_name, avg(salary) as avg_salary from employees group by employee_name) m on e.salary > m.avg_salary",
+      "gold_norm": "select e.name, e.department from employees as e where e.salary > (select avg(salary) from employees where department = e.department)",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: employee_name",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: employee_name"
+      ]
+    },
+    {
+      "id": 24,
+      "question": "For each team, show the team name, the name of its highest-paid employee, and that employee's salary.",
+      "gold": "SELECT e.department, e.name, e.salary FROM employees AS e WHERE e.salary = (SELECT MAX(salary) FROM employees WHERE department = e.department)",
+      "prediction_raw": "SELECT teams.name, employees.salary, MAX(employees.salary) FROM employees JOIN teams ON employees.department = teams.name GROUP BY teams.name",
+      "prediction_norm": "select teams.name, employees.salary, max(employees.salary) from employees join teams on employees.department = teams.name group by teams.name",
+      "gold_norm": "select e.department, e.name, e.salary from employees as e where e.salary = (select max(salary) from employees where department = e.department)",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such table: teams",
+      "attempts": 1,
+      "repair_errors": [
+        "no such table: teams"
+      ]
+    },
+    {
+      "id": 25,
+      "question": "Which departments are overspending their allocated budgets on employee salaries? Show the department and total salary spend.",
+      "gold": "SELECT departments.name, SUM(employees.salary) FROM departments JOIN employees ON departments.name = employees.department GROUP BY departments.id, departments.name, departments.budget HAVING SUM(employees.salary) > departments.budget",
+      "prediction_raw": "SELECT departments.name, SUM(employees.salary) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.name HAVING SUM(employees.salary) > departments.budget",
+      "prediction_norm": "select departments.name, sum(employees.salary) from employees join departments on employees.department = departments.name group by departments.name having sum(employees.salary) > departments.budget",
+      "gold_norm": "select departments.name, sum(employees.salary) from departments join employees on departments.name = employees.department group by departments.id, departments.name, departments.budget having sum(employees.salary) > departments.budget",
+      "correct": false,
+      "exec_correct": true,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 26,
+      "question": "By office location, which locations spend more on payroll than the combined budgets of their departments, and by how much?",
+      "gold": "SELECT location, SUM(payroll) - SUM(budget) FROM (SELECT departments.location AS location, departments.budget AS budget, SUM(employees.salary) AS payroll FROM departments JOIN employees ON departments.name = employees.department GROUP BY departments.id, departments.location, departments.budget) GROUP BY location HAVING SUM(payroll) > SUM(budget)",
+      "prediction_raw": "SELECT departments.location, SUM(employees.salary) - (SUM(departments.budget) * COUNT(*) / COUNT(*) * 100) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.location",
+      "prediction_norm": "select departments.location, sum(employees.salary) - (sum(departments.budget) * count(*) / count(*) * 100) from employees join departments on employees.department = departments.name group by departments.location",
+      "gold_norm": "select location, sum(payroll) - sum(budget) from (select departments.location as location, departments.budget as budget, sum(employees.salary) as payroll from departments join employees on departments.name = employees.department group by departments.id, departments.location, departments.budget) group by location having sum(payroll) > sum(budget)",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 27,
+      "question": "Which employees manage at least one person but have no direct report hired before them? Just their names.",
+      "gold": "SELECT managers.name FROM employees AS managers WHERE EXISTS (SELECT 1 FROM employees WHERE manager_id = managers.id) AND NOT EXISTS (SELECT 1 FROM employees AS reports WHERE reports.manager_id = managers.id AND reports.hire_date < managers.hire_date)",
+      "prediction_raw": "SELECT name FROM employees WHERE manager_id IS NULL ORDER BY hire_date ASC",
+      "prediction_norm": "select name from employees where manager_id is null order by hire_date asc",
+      "gold_norm": "select managers.name from employees as managers where exists (select 1 from employees where manager_id = managers.id) and not exists (select 1 from employees as reports where reports.manager_id = managers.id and reports.hire_date < managers.hire_date)",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    },
+    {
+      "id": 28,
+      "question": "Which team has the largest share of total employee payroll, and what percentage of payroll is that, rounded to two decimal places?",
+      "gold": "SELECT department, ROUND(100.0 * SUM(salary) / (SELECT SUM(salary) FROM employees), 2) FROM employees GROUP BY department ORDER BY SUM(salary) DESC LIMIT 1",
+      "prediction_raw": "SELECT AVG(employees.salary) / SUM(employees.salary) * 100 FROM employees GROUP BY AVG(employees.salary)",
+      "prediction_norm": "select avg(employees.salary) / sum(employees.salary) * 100 from employees group by avg(employees.salary)",
+      "gold_norm": "select department, round(100.0 * sum(salary) / (select sum(salary) from employees), 2) from employees group by department order by sum(salary) desc limit 1",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "aggregate functions are not allowed in the GROUP BY clause",
+      "attempts": 1,
+      "repair_errors": [
+        "aggregate functions are not allowed in the GROUP BY clause"
+      ]
+    },
+    {
+      "id": 29,
+      "question": "Which departments have an average salary above the average for employees at the same office location? Show the department and average salary.",
+      "gold": "SELECT departments.name, AVG(employees.salary) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.id, departments.name, departments.location HAVING AVG(employees.salary) > (SELECT AVG(location_employees.salary) FROM employees AS location_employees JOIN departments AS location_departments ON location_employees.department = location_departments.name WHERE location_departments.location = departments.location)",
+      "prediction_raw": "SELECT departments.name, AVG(employees.salary) FROM employees JOIN departments ON employees.department = departments.name GROUP BY departments.name HAVING AVG(employees.salary) > (SELECT AVG(salary) FROM employees WHERE departments.location = employees.hire_location)",
+      "prediction_norm": "select departments.name, avg(employees.salary) from employees join departments on employees.department = departments.name group by departments.name having avg(employees.salary) > (select avg(salary) from employees where departments.location = employees.hire_location)",
+      "gold_norm": "select departments.name, avg(employees.salary) from employees join departments on employees.department = departments.name group by departments.id, departments.name, departments.location having avg(employees.salary) > (select avg(location_employees.salary) from employees as location_employees join departments as location_departments on location_employees.department = location_departments.name where location_departments.location = departments.location)",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": "no such column: employees.hire_location",
+      "attempts": 1,
+      "repair_errors": [
+        "no such column: employees.hire_location"
+      ]
+    },
+    {
+      "id": 30,
+      "question": "For each department with a budget below $500,000, show its earliest-hired employee's name, the department name, and the hire date.",
+      "gold": "SELECT e.name, e.department, e.hire_date FROM employees AS e JOIN departments ON e.department = departments.name WHERE departments.budget < 500000 AND e.hire_date = (SELECT MIN(hire_date) FROM employees WHERE department = e.department)",
+      "prediction_raw": "SELECT employees.name, departments.name, employees.hire_date FROM employees JOIN departments ON employees.department = departments.name WHERE departments.budget < 500000",
+      "prediction_norm": "select employees.name, departments.name, employees.hire_date from employees join departments on employees.department = departments.name where departments.budget < 500000",
+      "gold_norm": "select e.name, e.department, e.hire_date from employees as e join departments on e.department = departments.name where departments.budget < 500000 and e.hire_date = (select min(hire_date) from employees where department = e.department)",
+      "correct": false,
+      "exec_correct": false,
+      "exec_error": null,
+      "attempts": 1,
+      "repair_errors": []
+    }
+  ]
+}
