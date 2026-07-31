@@ -32,7 +32,7 @@ help:
 	@echo "make eval-ood  - evaluate the adapter on the out-of-template (reworded) eval set"
 	@echo "make eval-schema - evaluate base + adapter on the second (bookstore) schema"
 	@echo "make eval-join - evaluate base + adapter on the multi-table JOIN eval sets"
-	@echo "make eval-all  - evaluate the adapter on all six DEV eval sets (regression check)"
+	@echo "make eval-all  - evaluate the adapter on all seven DEV eval sets (regression check)"
 	@echo "make eval-blind  - HELD-BACK set: score base + adapter ONCE, then stop (see README)"
 	@echo "make compare   - score a 3x larger model zero-shot on every set (is the FT worth it?)"
 	@echo "make quantized - score the int8-quantized adapter (accuracy cost of quantizing)"
@@ -103,10 +103,12 @@ eval-join:
 # development signal; a blind set only keeps its meaning while it stays out of
 # that loop.
 #
-# text2sql_eval_blind_v1_retired.jsonl is here because it has been spent: it was
-# scored once, its failures were read, and the construct families they exposed
-# were taught. That is exactly what turns a blind set into a development set, so
-# it is accounted for as one rather than quietly re-scored as if still blind.
+# Both *_retired.jsonl sets are here because they have been spent. Each was scored
+# once as a blind set, then its failures were read and acted on -- v1 motivated the
+# construct families, v2 exposed the join-grouping starvation and the vocabulary
+# gap. Reading a blind set's failures is exactly what turns it into a development
+# set, so they are accounted for as development sets rather than quietly re-scored
+# as if still blind.
 eval-all:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
@@ -119,6 +121,8 @@ eval-all:
 		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_blind_v1_retired.jsonl $(EVAL_ARGS)
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_blind_v2_retired.jsonl $(EVAL_ARGS)
 
 # The held-back set. Written after the model was frozen, never used to diagnose a
 # failure or steer the training data, and excluded from `eval-all` so it cannot
@@ -127,13 +131,13 @@ eval-all:
 # it converts this into just another dev set, and the project loses the only
 # unbiased estimate it has.
 #
-# v2 was authored by an independent party that was walled off from the training
+# v3 was authored by an independent party that was walled off from the training
 # generator, from every existing eval set and from all model output - see the
-# README section "Replacing a spent blind set".
+# README section "Three blind sets, and what their disagreement measures".
 eval-blind:
-	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind_v2.jsonl $(EVAL_ARGS)
+	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind_v3.jsonl $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_blind_v2.jsonl $(EVAL_ARGS)
+		--eval-file data/eval/text2sql_eval_blind_v3.jsonl $(EVAL_ARGS)
 
 # What does letting the model read its own SQLite error buy? Scores every
 # development set with one retry allowed, so the numbers line up directly against
@@ -160,7 +164,9 @@ compare:
 	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
 		--eval-file data/eval/text2sql_eval_blind_v1_retired.jsonl
 	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
-		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v2_retired.jsonl
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
+		--eval-file data/eval/text2sql_eval_blind_v3.jsonl
 
 # What does quantization cost in accuracy? int8 is CPU-only, so this also runs the
 # fp32 comparison on CPU -- comparing an int8 CPU run against an fp32 MPS run would
@@ -169,9 +175,9 @@ quantized:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu --quantize
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu \
-		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v3.jsonl
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu --quantize \
-		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v3.jsonl
 
 serve:
 	$(PY) -m src.serve --adapter $(ADAPTER) $(SERVE_ARGS)
