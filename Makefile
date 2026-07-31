@@ -16,7 +16,11 @@ TRAIN_ARGS ?=
 # Extra flags for `make serve`, e.g. SERVE_ARGS="--quantize --port 9000".
 SERVE_ARGS ?=
 
-.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all eval-blind compare quantized serve test lint clean
+# Extra flags passed to every eval in `eval-all` / `eval-blind`, e.g.
+#   make eval-all EVAL_ARGS="--repair 2"
+EVAL_ARGS ?=
+
+.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all eval-blind compare quantized repair serve test lint clean
 
 help:
 	@echo "make setup     - create venv and install local (CPU/MPS) requirements"
@@ -32,6 +36,7 @@ help:
 	@echo "make eval-blind  - HELD-BACK set: score base + adapter ONCE, then stop (see README)"
 	@echo "make compare   - score a 3x larger model zero-shot on every set (is the FT worth it?)"
 	@echo "make quantized - score the int8-quantized adapter (accuracy cost of quantizing)"
+	@echo "make repair    - score every dev set with the execute-and-repair loop on"
 	@echo "make serve     - serve the adapter over HTTP on :8000 (POST /sql)"
 	@echo "make test      - run the fast unit tests (no model download)"
 	@echo "make lint      - run ruff (real-error rules) over the repo"
@@ -103,17 +108,17 @@ eval-join:
 # were taught. That is exactly what turns a blind set into a development set, so
 # it is accounted for as one rather than quietly re-scored as if still blind.
 eval-all:
-	$(PY) -m src.eval_baseline --adapter $(ADAPTER)
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_paraphrase.jsonl
+		--eval-file data/eval/text2sql_eval_paraphrase.jsonl $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore
+		--eval-file data/eval/text2sql_eval_bookstore.jsonl --schema bookstore $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_join.jsonl
+		--eval-file data/eval/text2sql_eval_join.jsonl $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
+		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_blind_v1_retired.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v1_retired.jsonl $(EVAL_ARGS)
 
 # The held-back set. Written after the model was frozen, never used to diagnose a
 # failure or steer the training data, and excluded from `eval-all` so it cannot
@@ -126,9 +131,16 @@ eval-all:
 # generator, from every existing eval set and from all model output - see the
 # README section "Replacing a spent blind set".
 eval-blind:
-	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind_v2.jsonl
+	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind_v2.jsonl $(EVAL_ARGS)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v2.jsonl $(EVAL_ARGS)
+
+# What does letting the model read its own SQLite error buy? Scores every
+# development set with one retry allowed, so the numbers line up directly against
+# `eval-all`. The loop never sees the gold and only fires on a query that already
+# failed to execute, so it cannot lower a score -- see src/repair.py.
+repair:
+	$(MAKE) eval-all EVAL_ARGS="--repair 2"
 
 # Is a fine-tuned small model actually worth it, or would a bigger model do? This
 # scores COMPARE_MODEL zero-shot on every set, including the held-back one, so the

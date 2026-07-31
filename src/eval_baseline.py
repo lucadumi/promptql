@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.data_utils import SCHEMA_SQL, build_messages, build_plain_prompt, load_jsonl  # noqa: E402
 from src.db import SCHEMAS, execution_match  # noqa: E402
 from src.metrics import exact_match, normalize_sql  # noqa: E402
+from src.repair import generate_with_repair, sqlite_validator  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EVAL = REPO_ROOT / "data" / "eval" / "text2sql_eval.jsonl"
@@ -177,6 +178,10 @@ def main() -> int:
     parser.add_argument("--device", default="auto", help="auto | cpu | mps | cuda")
     parser.add_argument("--quantize", action="store_true",
                         help="dynamic int8 quantization of the linear layers (CPU only)")
+    parser.add_argument("--repair", type=int, default=1, metavar="N",
+                        help="total generation attempts per question (1 = off). When a "
+                             "generated query fails to execute, re-ask with the SQLite "
+                             "error appended. Never sees the gold; see src/repair.py.")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTDIR), help="Where to write results.")
     args = parser.parse_args()
 
@@ -199,10 +204,19 @@ def main() -> int:
     records = []
     correct = 0
     exec_correct = 0
+    n_repaired = 0
+    validate = sqlite_validator(schema)
     t0 = time.time()
     for i, ex in enumerate(examples, start=1):
         question, gold = ex["question"], ex["sql"]
-        raw = generate_sql(model, tokenizer, question, device, args.max_new_tokens, schema.ddl)
+
+        def _gen(q: str) -> str:
+            return generate_sql(model, tokenizer, q, device, args.max_new_tokens,
+                                schema.ddl)
+
+        rep = generate_with_repair(_gen, question, validate, max_attempts=args.repair)
+        raw = rep.raw
+        n_repaired += int(rep.repaired)
         ok = exact_match(raw, gold)
         exec_res = execution_match(raw, gold, schema)
         correct += int(ok)
@@ -218,9 +232,13 @@ def main() -> int:
                 "correct": ok,
                 "exec_correct": exec_res.match,
                 "exec_error": exec_res.pred_error,
+                "attempts": rep.attempts,
+                "repair_errors": rep.errors,
             }
         )
         flags = f"EM {'OK' if ok else 'XX'} | EX {'OK' if exec_res.match else 'XX'}"
+        if rep.attempts > 1:
+            flags += f" | {rep.attempts} tries"
         print(f"[{i:2d}/{len(examples)}] {flags}  {question}", flush=True)
 
     elapsed = time.time() - t0
@@ -233,6 +251,8 @@ def main() -> int:
         "schema": schema.name,
         "device": device,
         "quantized": bool(args.quantize),
+        "repair_attempts": args.repair,
+        "n_repaired": n_repaired,
         "eval_file": os.path.relpath(args.eval_file, REPO_ROOT),
         "n_examples": n,
         "exact_match": round(em, 4),
@@ -254,6 +274,9 @@ def main() -> int:
         # Without this an int8 run and an fp32 run of the same model differ only
         # by timestamp, and "latest file wins" silently mixes the two.
         tag += "__int8"
+    if args.repair > 1:
+        # Same reasoning: a repaired run is a different system, not a rerun.
+        tag += f"__repair{args.repair}"
     tag += "__" + Path(args.eval_file).stem
     prefix = "eval" if args.adapter else "baseline"
     json_path = outdir / f"{prefix}_{tag}_{stamp}.json"
@@ -265,6 +288,8 @@ def main() -> int:
     print("\n" + "=" * 60)
     print(f"EXACT MATCH: {correct}/{n} = {em:.1%}")
     print(f"EXEC  ACC  : {exec_correct}/{n} = {ex_acc:.1%}  ({elapsed:.1f}s on {device})")
+    if args.repair > 1:
+        print(f"REPAIRED   : {n_repaired}/{n} queries needed a retry that then ran")
     print(f"Saved: {json_path.relative_to(REPO_ROOT)}")
     print("=" * 60)
     return 0
@@ -281,6 +306,8 @@ def _append_markdown_row(md_path: Path, summary: dict) -> None:
         display_model += " + " + os.path.basename(os.path.normpath(summary["adapter"]))
     if summary.get("quantized"):
         display_model += " [int8]"
+    if summary.get("repair_attempts", 1) > 1:
+        display_model += f" [repair x{summary['repair_attempts']}]"
     eval_set = Path(summary["eval_file"]).stem
     row = (
         f"| {summary['timestamp_utc']} | `{display_model}` | {eval_set} | {summary['device']} "
