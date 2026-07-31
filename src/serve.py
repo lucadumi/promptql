@@ -47,6 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.db import SCHEMAS, build_db, run_sql  # noqa: E402
 from src.metrics import extract_sql  # noqa: E402
+from src.repair import generate_with_repair, sqlite_validator  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
@@ -97,17 +98,45 @@ def is_safe_select(sql: str) -> bool:
     return not any(f" {word} " in f" {stripped} " for word in FORBIDDEN_SQL)
 
 
+def _safe_validator(schema):
+    """A repair validator that refuses to *execute* anything but a read-only SELECT.
+
+    The plain validator in `src/repair.py` runs whatever it is given, which is
+    fine inside the eval harness where the SQL never leaves the process. Here the
+    query came from a model over HTTP, so the safety guard has to sit in front of
+    execution rather than after it - otherwise a hallucinated `DROP TABLE` would
+    reach SQLite as part of *validating* it. Refusing is also useful feedback: the
+    refusal text is what gets fed back to the model as the error to fix.
+    """
+    run = sqlite_validator(schema)
+
+    def validate(sql: str) -> Optional[str]:
+        if not sql or not looks_like_sql(sql):
+            return "the output was not a SQL query"
+        if not is_safe_select(sql):
+            return "only a single read-only SELECT statement is allowed"
+        return run(sql)
+
+    return validate
+
+
 def answer(
     question: str,
     generate: Generator,
     schema_name: str = "employees",
     execute: bool = True,
+    repair_attempts: int = 1,
 ) -> Tuple[int, Dict[str, object]]:
     """Turn a question into an HTTP status and a JSON-ready response body.
 
     This is the whole application logic, deliberately kept free of both HTTP and
     torch so it can be tested directly. `generate` is any callable mapping
     (question, schema DDL) to raw model output.
+
+    ``repair_attempts`` > 1 enables the execute-and-repair loop (`src/repair.py`):
+    a query SQLite rejects is re-asked once with its own error appended. It is
+    gated on ``execute`` because the loop's only signal *is* execution - asking
+    for SQL without running it leaves nothing to repair from.
     """
     if not question or not question.strip():
         return 400, {"error": "field 'question' must be a non-empty string"}
@@ -116,13 +145,27 @@ def answer(
                      "available": sorted(SCHEMAS)}
 
     schema = SCHEMAS[schema_name]
-    raw = generate(question, schema.ddl)
-    sql = extract_sql(raw)
+    attempts, repair_errors = 1, []
+    if execute and repair_attempts > 1:
+        result = generate_with_repair(
+            lambda q: generate(q, schema.ddl),
+            question,
+            _safe_validator(schema),
+            max_attempts=repair_attempts,
+        )
+        raw, sql = result.raw, result.sql
+        attempts, repair_errors = result.attempts, result.errors
+    else:
+        raw = generate(question, schema.ddl)
+        sql = extract_sql(raw)
     if not sql or not looks_like_sql(sql):
         return 422, {"error": "model did not produce a SQL query",
                      "question": question, "raw": raw}
 
     body: Dict[str, object] = {"question": question, "sql": sql, "schema": schema.name}
+    if attempts > 1:
+        body["attempts"] = attempts
+        body["repaired_from"] = repair_errors
     if not execute:
         return 200, body
 
@@ -168,7 +211,8 @@ def load_generator(
     return generate
 
 
-def make_handler(generate: Generator, default_schema: str = "employees"):
+def make_handler(generate: Generator, default_schema: str = "employees",
+                 repair_attempts: int = 1):
     """Build a request handler bound to a specific generator."""
 
     class Handler(BaseHTTPRequestHandler):
@@ -213,6 +257,7 @@ def make_handler(generate: Generator, default_schema: str = "employees"):
                 generate=generate,
                 schema_name=payload.get("schema", default_schema),
                 execute=bool(payload.get("execute", True)),
+                repair_attempts=int(payload.get("repair", repair_attempts)),
             )
             self._send(status, body)
 
@@ -237,6 +282,10 @@ def main() -> int:
     parser.add_argument("--schema", default="employees", choices=sorted(SCHEMAS),
                         help="default schema for requests that do not name one")
     parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--repair", type=int, default=1, metavar="N",
+                        help="total generation attempts per request (1 = off). A query "
+                             "SQLite rejects is re-asked with its own error appended; "
+                             "callers can override per request with {\"repair\": N}.")
     args = parser.parse_args()
 
     adapter = None if args.no_adapter else args.adapter
@@ -249,7 +298,8 @@ def main() -> int:
     generate = load_generator(args.model, adapter, args.device, args.quantize,
                               args.max_new_tokens)
 
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(generate, args.schema))
+    server = ThreadingHTTPServer((args.host, args.port),
+                                 make_handler(generate, args.schema, args.repair))
     label = args.model + (f" + {Path(adapter).name}" if adapter else " (base)")
     print(f"Serving {label}{' [int8]' if args.quantize else ''} "
           f"on http://{args.host}:{args.port}  (schema: {args.schema})", flush=True)

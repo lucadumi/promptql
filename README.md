@@ -56,8 +56,8 @@ Aimed at anyone assessing this repo as work product: what it shows, and where to
 | **Understanding of evaluation bias** | A blind set, spent, then **retired and replaced by an independently authored one**, with the protocol enforced by tests, not discipline | `tests/test_eval_blind.py` |
 | **Training engineering** | Explicit PyTorch loop (no `Trainer`): LoRA on attention + MLP, prompt masking, gradient accumulation, warmup + linear decay, train/val loss watched together | `src/train_lora.py` |
 | **Diagnosing regressions** | Catastrophic forgetting of `JOIN`s found and fixed; a rebalancing attempt that made things worse, reported rather than buried | [Experiment log](#experiment-log-how-it-got-here) |
-| **Cost/benefit honesty** | Benchmarked against a 3x larger model on every set; int8 quantization measured and **not recommended**, with the numbers explaining why | [Is it worth it?](#is-the-fine-tune-worth-it-vs-a-3x-larger-model) |
-| **Shipping** | Stdlib-only HTTP API that executes its own SQL behind a read-only guard, fully testable without torch | `src/serve.py`, `tests/test_serve.py` |
+| **Cost/benefit honesty** | Benchmarked against a 3x larger model on every set; int8 quantization and an execute-and-repair loop both measured, with one recommended against and the other shown to buy nothing on the held-back set | [Is it worth it?](#is-the-fine-tune-worth-it-vs-a-3x-larger-model) |
+| **Shipping** | Stdlib-only HTTP API that executes its own SQL behind a read-only guard, with an optional error-feedback retry, fully testable without torch | `src/serve.py`, `src/repair.py` |
 | **Engineering hygiene** | 173 unit tests, ruff, CI that runs on every push without downloading a model, pinned lockfile, Makefile for every step | `.github/workflows/ci.yml`, `Makefile` |
 
 ---
@@ -163,12 +163,13 @@ And the held-back set, scored exactly once against a finished model:
 The adapter adds **4.4M** trainable parameters (0.88%) on top of the frozen 0.49B base and
 trains in ~20–40 minutes on a laptop.
 
-**One partly-recovered regression, reported rather than buried.** The cross-schema FK join set
-fell from 100% to 82% when the new construct families landed, and a targeted fix took it back
-to 91% (10/11) rather than all the way. The remaining failure is a single query where the
-model inverts the foreign key. Two rejected fixes are on the record in `results/baseline.md`
-(`…-constructs-rebalanced`, `…-joinorder`) — see the
-[experiment log](#experiment-log-how-it-got-here). It stays on the [roadmap](#roadmap).
+**One recovered regression, and the two failed attempts that came first.** The cross-schema FK
+join set fell from 100% to 82% when the new construct families landed. A training-data fix took
+it to 91%; two others made it worse and were reverted (`…-constructs-rebalanced`,
+`…-joinorder` in `results/baseline.md`). What finally closed it was not training data at all:
+the [execute-and-repair loop](#execute-and-repair-a-win-on-one-set-and-a-null-result-on-the-one-that-matters)
+returns it to **100%** at inference time. The table above is the model on its own; with
+`--repair 2` the development total is 97%.
 
 ---
 
@@ -262,6 +263,51 @@ statement would have been visible without an independently written blind set.
 
 ## Deploying it: quantization and a small API
 
+### Execute-and-repair: a win on one set, and a null result on the one that matters
+
+The API already *runs* the SQL it generates, so when a query is invalid SQLite says exactly
+what is wrong with it. Feeding that back is free information at inference time and needs no
+retraining: `--repair 2` re-asks once, with the error translated into an instruction.
+
+The headroom was measured before the mechanism was built. Of the adapter's 22 failures across
+all seven eval sets, **15 raise a SQLite error** and 7 run fine but return the wrong rows —
+so the ceiling is "some of 15". Without the gold there is no way to know that a query which
+executed cleanly answered the wrong question, and the loop never sees the gold. It also cannot
+lower a score: it fires only for a query that already failed to execute, and such a query is
+already graded wrong. That is a property of the design, and `tests/test_repair.py` pins it.
+
+| | JOIN (bookstore, FK) | development total | **blind v2** |
+|---|:--:|:--:|:--:|
+| single generation | 91% | 96% | **40%** |
+| `--repair 2` | **100%** | **97%** | **40%** |
+
+**It fully recovered the cross-schema FK join regression** — 91% → 100%, at inference time,
+with no retraining — and bought **exactly nothing** on the held-back set. On blind v2 the loop
+made 3 queries runnable and turned **none** of them into correct answers.
+
+That gap is the interesting part. The loop fixes *lookup* errors, where the right identifier
+exists and is nearby: told `no such column: publishers.publisher_id`, the model re-reads the
+schema and joins on `publishers.id`. It does nothing for *vocabulary* mismatches, and blind v2
+is full of them — its author says "team" where the schema says `department`, so the model
+invents a `teams` table and, told there is no such table, invents it again. In 10 of 13 retries
+the second attempt reproduced the identical error. Nor does it help the compositional failures,
+where the query errors because the model is attempting something it cannot do at all.
+
+Two smaller findings worth recording, both from probing the model directly rather than guessing:
+
+- **Never show the model its own failed SQL.** The first version put the failed query and the
+  raw SQLite message in the prompt, and every retry came back *byte-identical* to the first
+  attempt. Under greedy decoding the previous answer is a strong prior to reproduce it.
+- **Make the instruction corrective, not prohibitive.** "Do NOT use the column
+  `publishers.publisher_id`" made the model avoid the whole table and invent `cities.city`
+  instead. "That column does not exist; use the correct one from the schema" produced the gold
+  query exactly.
+
+**The honest read:** worth shipping (it is cheap, it cannot hurt, and it recovered a real
+regression), but it is not a route to the hard tier. It is also more useful to a *weaker* model
+— on the base model it lifted blind v2 from 10% to 13%, because more of the base model's
+failures are the kind a schema hint can fix.
+
 <details>
 <summary><b>Quantization: measured, and not recommended at this size</b></summary>
 
@@ -311,7 +357,8 @@ $ curl -s localhost:8000/sql -d '{"question": "How many employees are in the Sal
 }
 ```
 
-Pass `"schema": "bookstore"` to query the other schema, or `"execute": false` for SQL only.
+Pass `"schema": "bookstore"` to query the other schema, `"execute": false` for SQL only, or
+`"repair": 2` to enable the retry loop for that request (`--repair 2` sets the default).
 Two deliberate choices:
 
 - **No web framework.** `http.server` from the standard library. CI installs neither torch nor
@@ -361,7 +408,8 @@ minute; `--device cpu` finished the same run in 17–37 minutes depending on sys
 pressure. Measure before assuming the GPU path is faster.</sub>
 
 Individual targets: `eval-ft` (in-template), `eval-ood` (reworded), `eval-schema` (bookstore),
-`eval-join` (both JOIN sets), `make compare` (3x larger model on every set), `make quantized`
+`eval-join` (both JOIN sets), `make compare` (3x larger model on every set), `make repair`
+(every dev set with the error-feedback retry on), `make quantized`
 (what int8 costs).
 
 There is also `make eval-blind`, which scores the **held-back** set. It is intentionally not
@@ -634,6 +682,7 @@ away from mattering; `tests/test_build_dataset.py` now pins it shut.
 │   ├── build_dataset.py   # synthesise the de-leaked NL->SQL training set
 │   ├── train_lora.py      # LoRA fine-tune the base model on data/train/
 │   ├── serve.py           # HTTP API: question -> SQL -> rows (stdlib only)
+│   ├── repair.py          # execute-and-repair: re-ask with SQLite's error (stdlib only)
 │   ├── data_utils.py      # both schemas + shared prompt format (keeps train == eval)
 │   ├── db.py              # seeded SQLite DBs + execution-accuracy scoring
 │   └── metrics.py         # SQL normalisation + exact-match scoring
@@ -684,15 +733,21 @@ away from mattering; `tests/test_build_dataset.py` now pins it shut.
   enforced isolation, and reported the resulting *drop* in the headline number.
 - ✅ **Taught the constructs v1 proved were missing** (`IS NULL`, `SELECT DISTINCT`, `strftime`
   dates, `LIKE`, `BETWEEN`, `!=`) and closed the last in-taxonomy dev failure.
-- ⬜ **Recover the last cross-schema FK join failure** (now 91%, was 82%, originally 100%). The
-  model inverts the foreign key on a grouped query. Two hypotheses have been tried and refuted:
-  rebalancing the single-table counterpart, and teaching both table orders (which collapsed the
-  set to 18%). A third weighting tweak is unlikely to help; the next idea should probably come
-  from outside the training data — for example letting the API's execute step feed a retry.
+- ✅ **Recovered the cross-schema FK join regression** the hard way. Two training-data
+  hypotheses were tried and refuted (rebalancing the single-table counterpart; teaching both
+  table orders, which collapsed the set to 18%). What worked was outside the training data
+  entirely: an **execute-and-repair loop** takes it 91% → **100%** by re-asking with SQLite's
+  error, and needs no retraining.
 - ⬜ **Attack the hard tier**, where the fine-tune scores 1/8 and a 3x larger model scores 0/8.
-  Needs compositional training data (subqueries, `EXISTS`, per-group extremes) — or the honest
-  conclusion that a 0.5B model is the wrong tool and an execute-and-repair loop is the right
-  one.
+  The repair loop was the cheap hypothesis and it is now **ruled out** — it fixed 3 blind-set
+  queries into runnable SQL and none into correct SQL. What remains is compositional training
+  data (subqueries, `EXISTS`, per-group extremes), a larger base model, or the honest conclusion
+  that this is out of scope for 0.5B.
+- ⬜ **Close the vocabulary gap the repair loop exposed.** Blind v2 says "team" where the schema
+  says `department`, and the model invents a `teams` table — twice, even when told it does not
+  exist. That is a synonym-grounding problem, not a SQL problem, and it is probably the largest
+  single lever left on the medium tier. It needs a **new blind set first**, since v2's failures
+  are what revealed it.
 - ⬜ **Commission blind set v3** before acting on anything v2 revealed. Same rule as before: a
   new author, the same isolation, scored once.
 

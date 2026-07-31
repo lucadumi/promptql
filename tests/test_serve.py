@@ -36,6 +36,68 @@ def echo_schema_generator():
     return generate
 
 
+def scripted_generator(*sqls: str):
+    """A stub that returns a different completion on each successive call."""
+    calls = {"n": 0}
+
+    def generate(question: str, schema_ddl: str) -> str:
+        out = sqls[min(calls["n"], len(sqls) - 1)]
+        calls["n"] += 1
+        return out
+    return generate
+
+
+class TestRepairLoop:
+    """The API can re-ask the model with SQLite's error (see src/repair.py)."""
+
+    def test_off_by_default(self):
+        gen = scripted_generator("SELECT nope FROM employees",
+                                 "SELECT name FROM employees")
+        status, body = answer("q", gen)
+        assert status == 422
+        assert "attempts" not in body
+
+    def test_a_broken_query_is_repaired_when_enabled(self):
+        gen = scripted_generator("SELECT nope FROM employees",
+                                 "SELECT name FROM employees")
+        status, body = answer("q", gen, repair_attempts=2)
+        assert status == 200
+        assert body["sql"] == "SELECT name FROM employees"
+        assert body["attempts"] == 2
+        assert body["repaired_from"] and "nope" in body["repaired_from"][0]
+
+    def test_a_working_query_is_not_retried(self):
+        gen = scripted_generator("SELECT COUNT(*) FROM employees",
+                                 "SELECT name FROM employees")
+        status, body = answer("q", gen, repair_attempts=3)
+        assert status == 200
+        assert body["sql"] == "SELECT COUNT(*) FROM employees"
+        assert "attempts" not in body
+
+    def test_repair_never_executes_a_write_while_validating(self):
+        """The loop validates by *running* the SQL, so the read-only guard has to
+        sit in front of execution rather than after it, or a hallucinated write
+        would reach SQLite as part of checking whether it was valid."""
+        gen = scripted_generator("DROP TABLE employees",
+                                 "SELECT COUNT(*) FROM employees")
+        status, body = answer("q", gen, repair_attempts=2)
+        assert status == 200
+        assert body["sql"] == "SELECT COUNT(*) FROM employees"
+        assert "read-only" in body["repaired_from"][0]
+        # the table survived
+        status, body = answer("q", const_generator("SELECT COUNT(*) FROM employees"))
+        assert status == 200 and body["rows"] == [[20]]
+
+    def test_it_is_skipped_when_the_caller_asks_not_to_execute(self):
+        """With execute=false there is no execution, so there is no error to
+        repair from; the loop must not silently run the query anyway."""
+        gen = scripted_generator("SELECT nope FROM employees",
+                                 "SELECT name FROM employees")
+        status, body = answer("q", gen, execute=False, repair_attempts=2)
+        assert status == 200
+        assert body["sql"] == "SELECT nope FROM employees"
+
+
 class TestSafetyFilter:
     @pytest.mark.parametrize("sql", [
         "SELECT * FROM employees",
