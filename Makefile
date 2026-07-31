@@ -28,7 +28,7 @@ help:
 	@echo "make eval-ood  - evaluate the adapter on the out-of-template (reworded) eval set"
 	@echo "make eval-schema - evaluate base + adapter on the second (bookstore) schema"
 	@echo "make eval-join - evaluate base + adapter on the multi-table JOIN eval sets"
-	@echo "make eval-all  - evaluate the adapter on all five DEV eval sets (regression check)"
+	@echo "make eval-all  - evaluate the adapter on all six DEV eval sets (regression check)"
 	@echo "make eval-blind  - HELD-BACK set: score base + adapter ONCE, then stop (see README)"
 	@echo "make compare   - score a 3x larger model zero-shot on every set (is the FT worth it?)"
 	@echo "make quantized - score the int8-quantized adapter (accuracy cost of quantizing)"
@@ -90,12 +90,18 @@ eval-join:
 		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
 
 # Run the adapter over every DEVELOPMENT eval set: in-template, reworded, unseen
-# schema, and the two JOIN sets. Use this after retraining to check a gain on one
-# set is not a loss on another.
+# schema, the two JOIN sets, and the retired first blind set. Use this after
+# retraining to check a gain on one set is not a loss on another.
 #
-# `eval-blind` is deliberately NOT part of this target. Every set below has fed at
-# least one data-curation decision, which is what makes them development signal;
-# the blind set only keeps its meaning while it stays out of that loop.
+# The *current* blind set (v2) is deliberately NOT part of this target. Every set
+# below has fed at least one data-curation decision, which is what makes them
+# development signal; a blind set only keeps its meaning while it stays out of
+# that loop.
+#
+# text2sql_eval_blind_v1_retired.jsonl is here because it has been spent: it was
+# scored once, its failures were read, and the construct families they exposed
+# were taught. That is exactly what turns a blind set into a development set, so
+# it is accounted for as one rather than quietly re-scored as if still blind.
 eval-all:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER)
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
@@ -106,6 +112,8 @@ eval-all:
 		--eval-file data/eval/text2sql_eval_join.jsonl
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
 		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
+	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
+		--eval-file data/eval/text2sql_eval_blind_v1_retired.jsonl
 
 # The held-back set. Written after the model was frozen, never used to diagnose a
 # failure or steer the training data, and excluded from `eval-all` so it cannot
@@ -113,10 +121,14 @@ eval-all:
 # the number, and do not curate against it. Reading a failure here and "fixing"
 # it converts this into just another dev set, and the project loses the only
 # unbiased estimate it has.
+#
+# v2 was authored by an independent party that was walled off from the training
+# generator, from every existing eval set and from all model output - see the
+# README section "Replacing a spent blind set".
 eval-blind:
-	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind.jsonl
+	$(PY) -m src.eval_baseline --eval-file data/eval/text2sql_eval_blind_v2.jsonl
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) \
-		--eval-file data/eval/text2sql_eval_blind.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
 
 # Is a fine-tuned small model actually worth it, or would a bigger model do? This
 # scores COMPARE_MODEL zero-shot on every set, including the held-back one, so the
@@ -134,7 +146,9 @@ compare:
 	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
 		--eval-file data/eval/text2sql_eval_join_bookstore.jsonl --schema bookstore
 	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
-		--eval-file data/eval/text2sql_eval_blind.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v1_retired.jsonl
+	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
+		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
 
 # What does quantization cost in accuracy? int8 is CPU-only, so this also runs the
 # fp32 comparison on CPU -- comparing an int8 CPU run against an fp32 MPS run would
@@ -143,9 +157,9 @@ quantized:
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu --quantize
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu \
-		--eval-file data/eval/text2sql_eval_blind.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
 	$(PY) -m src.eval_baseline --adapter $(ADAPTER) --device cpu --quantize \
-		--eval-file data/eval/text2sql_eval_blind.jsonl
+		--eval-file data/eval/text2sql_eval_blind_v2.jsonl
 
 serve:
 	$(PY) -m src.serve --adapter $(ADAPTER) $(SERVE_ARGS)
