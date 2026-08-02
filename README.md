@@ -23,13 +23,21 @@ headline, because those sets were used to make decisions. This is:
 | **overall** | 30 | **13%** | **57%** | 40% |
 
 <sub>Execution accuracy against a seeded SQLite DB. Greedy decoding. Full per-example
-predictions in `results/`.</sub>
+predictions in `results/`. Thirty questions is a small exam, so every comparison drawn from
+this table is reported below with the interval it carries — run `make significance` to
+reproduce them.</sub>
 
 **Three things that table says, and a flattering benchmark would not:**
 
-1. **The fine-tune beats a model three times its size** on questions nobody involved in
-   building it had seen — 57% vs 40% — while running on a laptop CPU. 4.4M trained parameters
-   bought more than 1B extra frozen ones.
+1. **The fine-tune is worth far more than its size suggests, and beating the 1.5B is not
+   proven.** Against the base model it started from, the gain is not in doubt: +43 points,
+   95% CI **[+27, +60]**, and of the 13 questions the two disagree on the adapter wins all 13
+   (exact McNemar **p = 0.0002**). Against the model three times its size it is ahead by 17
+   points — 57% vs 40% — but that gap does **not** clear the noise floor of a 30-question set:
+   95% CI **[−3, +37]**, **p = 0.23**. Eight questions favour the adapter, three favour the
+   1.5B, and eleven disagreements cannot separate two models. The honest claim is that 4.4M
+   trained parameters bought *at least parity* with 1B extra frozen ones on a laptop CPU, not
+   a demonstrated win.
 2. **The hard tier is still 1/8, and the 1.5B also scores 1/8.** Compositional SQL is where
    both stop. At this scale the ceiling is task scope, not parameter count, and no amount of
    this kind of fine-tuning writes a correlated subquery it was never shown.
@@ -63,8 +71,9 @@ Aimed at anyone assessing this repo as work product: what it shows, and where to
 | **Training engineering** | Explicit PyTorch loop (no `Trainer`): LoRA on attention + MLP, prompt masking, gradient accumulation, warmup + linear decay, train/val loss watched together | `src/train_lora.py` |
 | **Diagnosing regressions** | Catastrophic forgetting of `JOIN`s found and fixed; a rebalancing attempt that made things worse, reported rather than buried | [Experiment log](#experiment-log-how-it-got-here) |
 | **Cost/benefit honesty** | Benchmarked against a 3x larger model on every set; int8 quantization and an execute-and-repair loop both measured, with one recommended against and the other shown to buy nothing on the held-back set | [Is it worth it?](#is-the-fine-tune-worth-it-vs-a-3x-larger-model) |
+| **Knowing when a gap is not a result** | Every model-vs-model claim carries a Wilson interval, a paired bootstrap on the gap, and an exact McNemar test. The one that mattered failed: the headline win over the 3x larger model does not clear zero, and the README says so | `src/significance.py`, `tests/test_significance.py` |
 | **Shipping** | Stdlib-only HTTP API that executes its own SQL behind a read-only guard, with an optional error-feedback retry, fully testable without torch | `src/serve.py`, `src/repair.py` |
-| **Engineering hygiene** | 197 unit tests, ruff, CI that runs on every push without downloading a model, pinned lockfile, Makefile for every step | `.github/workflows/ci.yml`, `Makefile` |
+| **Engineering hygiene** | 217 unit tests, ruff, CI that runs on every push without downloading a model, pinned lockfile, Makefile for every step | `.github/workflows/ci.yml`, `Makefile` |
 
 ---
 
@@ -268,11 +277,20 @@ greedy decoding) was scored on every set.
 matches the house SQL style far more often (79% vs 44% exact-match). That is the standard
 argument for task-specific fine-tuning, and it holds.
 
-**On the independently written blind set it wins by more: 57% vs 40%**, a 5-question margin,
-driven almost entirely by the medium tier (64% vs 35%). That is the result the project exists
-to support, and it is worth noting how nearly it went the other way: on the *previous* blind
-set the same two models finished 43% to 40% in the 1.5B's favour. Same models, same protocol,
-different author. Where they differ:
+**On the independently written blind set it is ahead by 17 points: 57% vs 40%**, a 5-question
+margin, driven almost entirely by the medium tier (64% vs 35%). **That margin does not survive
+a significance test.** Eight questions favour the adapter and three favour the 1.5B; a
+paired bootstrap over the thirty questions puts the gap at 95% CI **[−3, +37]**, and an exact
+McNemar test on the eleven disagreements gives **p = 0.23**. Reproduce both with
+`make significance`.
+
+Two conclusions follow, and only the first is safe. The fine-tune is **at least the equal of a
+model three times its size** on this set, at a third of the parameters and on a laptop CPU,
+which is the decision-relevant finding. It is *not* established that it beats it — and the
+previous blind set is the reason to take that seriously rather than as a technicality: the
+same two models finished 43% to 40% in the 1.5B's favour there. Same models, same protocol,
+different author. Two sets disagreeing about the direction of a gap is exactly what a
+non-significant interval predicts. Where they differ:
 
 - For questions inside a known, narrow distribution, **4.4M trained parameters buy more than 1B
   extra frozen ones**. The 0.5B fine-tune runs on a laptop CPU.
@@ -418,7 +436,7 @@ make data        # (re)generate the de-leaked NL->SQL training set into data/tra
 make train       # LoRA fine-tune -> adapters/
 make eval-all    # score the adapter on the seven development sets (regression check)
 make serve       # serve over HTTP on :8000 (POST /sql)
-make test        # 197 unit tests, no model download
+make test        # 217 unit tests, no model download
 ```
 
 **Reproducing the headline numbers takes two commands.** `adapters/` is gitignored (trained
@@ -686,9 +704,10 @@ of it.
 | development sets (137 q) | 41% | 77% | **84%** |
 | **blind v3** (30 q, scored once) | 13% | 40% | **57%** |
 
-The fine-tune beats the 3x larger model on both — and on the *previous* blind set the same two
-models finished 40% to 43% the other way. Same models, same protocol, different author. That is
-the note the project ends on.
+The fine-tune is ahead of the 3x larger model on both, but only the development margin is
+outside the noise: on blind v3 the 17-point gap carries a 95% CI of [−3, +37] (p = 0.23), and
+on the *previous* blind set the same two models finished 40% to 43% the other way. Same
+models, same protocol, different author. That is the note the project ends on.
 
 </details>
 
@@ -728,9 +747,12 @@ backlog, because closing any of them would cost another blind set:
   difficulty distributions. 75% → 40% → 57% is not a trajectory; on v1 the model *improved*
   from 75% to 88% during the period v2 read 40%. Quote them separately, with their provenance,
   or not at all.
-- **57% is one sample.** Two independent authors, same brief, same schema, disagreed by 17
-  points. A single held-out number carries more uncertainty than its confidence interval
-  suggests, and this repo can put a figure on that only because it built three.
+- **57% is one sample, and its interval is wide.** A 30-question set puts a 95% Wilson interval
+  of [39%, 73%] around it. Two independent authors, same brief, same schema, disagreed by 17
+  points. Every model-vs-model claim in this README is now reported with a paired bootstrap
+  interval and an exact McNemar test (`src/significance.py`, `make significance`), which is
+  what turned the headline from "beats a 3x larger model" into "matches it": the gap is real
+  in the sample and not separable from noise at this size.
 - **Two rounds' worth of fixes were rejected on the evidence.** Three candidate adapters were
   built to recover one regression; two made things worse and were reverted, and all three are in
   `results/baseline.md`. Choosing between candidates on development sets is what those sets are
@@ -761,7 +783,8 @@ backlog, because closing any of them would cost another blind set:
 │   ├── repair.py          # execute-and-repair: re-ask with SQLite's error (stdlib only)
 │   ├── data_utils.py      # both schemas + shared prompt format (keeps train == eval)
 │   ├── db.py              # seeded SQLite DBs + execution-accuracy scoring
-│   └── metrics.py         # SQL normalisation + exact-match scoring
+│   ├── metrics.py         # SQL normalisation + exact-match scoring
+│   └── significance.py    # Wilson intervals, paired bootstrap, exact McNemar (stdlib only)
 ├── data/
 │   ├── eval/              # 6 development sets + 1 held-back blind set, and a data card
 │   └── train/             # generated train/val split + a data card
