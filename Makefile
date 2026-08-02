@@ -20,7 +20,7 @@ SERVE_ARGS ?=
 #   make eval-all EVAL_ARGS="--repair 2"
 EVAL_ARGS ?=
 
-.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all eval-blind compare quantized repair serve test lint clean
+.PHONY: help setup dev-setup freeze smoke baseline data train eval-ft eval-ood eval-schema eval-join eval-all eval-blind compare significance quantized repair serve test lint clean
 
 help:
 	@echo "make setup     - create venv and install local (CPU/MPS) requirements"
@@ -35,6 +35,7 @@ help:
 	@echo "make eval-all  - evaluate the adapter on all seven DEV eval sets (regression check)"
 	@echo "make eval-blind  - HELD-BACK set: score base + adapter ONCE, then stop (see README)"
 	@echo "make compare   - score a 3x larger model zero-shot on every set (is the FT worth it?)"
+	@echo "make significance - paired test + interval on the headline blind-set comparison"
 	@echo "make quantized - score the int8-quantized adapter (accuracy cost of quantizing)"
 	@echo "make repair    - score every dev set with the execute-and-repair loop on"
 	@echo "make serve     - serve the adapter over HTTP on :8000 (POST /sql)"
@@ -167,6 +168,20 @@ compare:
 		--eval-file data/eval/text2sql_eval_blind_v2_retired.jsonl
 	$(PY) -m src.eval_baseline --model $(COMPARE_MODEL) \
 		--eval-file data/eval/text2sql_eval_blind_v3.jsonl
+
+# Thirty questions is few enough that a gap of several points is inside what
+# resampling the same set could produce anyway. This runs the paired test the
+# headline comparison has to survive before it is quoted as a win: a Wilson
+# interval on each accuracy, an exact McNemar test on the questions where the two
+# models disagree, and a paired bootstrap interval on the gap itself.
+#
+# It reads the committed result files rather than the models, so it is instant
+# and needs no torch. Point it at any two files in results/.
+BLIND_A ?= results/eval_Qwen__Qwen2.5-0.5B-Instruct__lora-qwen2.5-0.5b-joingroup__text2sql_eval_blind_v3_20260731-145718.json
+BLIND_B ?= results/baseline_Qwen__Qwen2.5-1.5B-Instruct__text2sql_eval_blind_v3_20260731-145942.json
+
+significance:
+	$(PY) -m src.significance $(BLIND_A) $(BLIND_B)
 
 # What does quantization cost in accuracy? int8 is CPU-only, so this also runs the
 # fp32 comparison on CPU -- comparing an int8 CPU run against an fp32 MPS run would
